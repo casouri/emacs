@@ -326,7 +326,7 @@ ts_check_buffer_size (struct buffer *buffer)
   ptrdiff_t buffer_size =
     (BUF_Z (buffer) - BUF_BEG (buffer));
   if (buffer_size > UINT32_MAX)
-    xsignal1 (Qtree_sitter_size_error,
+    xsignal2 (Qtree_sitter_size_error,
 	      build_pure_c_string ("Buffer size too large, size:"),
 	      make_fixnum (buffer_size));
 }
@@ -1161,6 +1161,8 @@ ts_query_error_to_string (TSQueryError error)
       return "Capture error at";
     case TSQueryErrorStructure:
       return "Structure error at";
+    default:
+      return "Unknown error";
     }
 }
 
