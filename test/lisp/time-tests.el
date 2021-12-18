@@ -21,6 +21,8 @@
 
 ;;; Commentary:
 
+;;; Code:
+
 (require 'ert)
 (require 'ert-x)
 (require 'time)
@@ -50,6 +52,7 @@
                               (? (| "AM" "PM"))
                               " " (+ (| digit "."))
                               (? " Mail")
+                              " "
                               string-end)
                           display-time-string))))
 

@@ -24,7 +24,6 @@
 
 ;;; Code:
 
-
 ;; Compiler pacifier start
 (defvar ediff-multiframe)
 ;; end pacifier
@@ -127,9 +126,9 @@ Normally, not a user option.  See `ediff-help-message' for details.")
 (defconst ediff-brief-message-string
   " Type ? for help"
   "Contents of the brief help message.")
-;; The actual brief help message
 (ediff-defvar-local ediff-brief-help-message ""
-  "Normally, not a user option.  See `ediff-help-message' for details.")
+  "The actual brief help message.
+Normally, not a user option.  See `ediff-help-message' for details.")
 
 (ediff-defvar-local ediff-brief-help-message-function nil
   "The brief help message that the user can customize.
@@ -144,7 +143,6 @@ See `ediff-brief-help-message-function' for more.")
   :type 'boolean
   :group 'ediff-window)
 
-;; The actual help message.
 (ediff-defvar-local ediff-help-message ""
   "The actual help message.
 Normally, the user shouldn't touch this.  However, if you want Ediff to
@@ -229,7 +227,9 @@ the value of this variable and the variables `ediff-help-message-*' in
 	    ((string= cmd "s") (re-search-forward "^['`‘]s['’]"))
 	    ((string= cmd "+") (re-search-forward "^['`‘]\\+['’]"))
 	    ((string= cmd "=") (re-search-forward "^['`‘]=['’]"))
-	    (t (user-error "Undocumented command! Type `G' in Ediff Control Panel to drop a note to the Ediff maintainer")))
+            (t (user-error (substitute-command-keys
+                            "Undocumented command! Type \\`G' in Ediff Control \
+Panel to drop a note to the Ediff maintainer"))))
       ) ; let case-fold-search
     ))
 

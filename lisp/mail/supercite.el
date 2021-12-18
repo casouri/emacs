@@ -1299,7 +1299,7 @@ use it instead of `sc-citation-root-regexp'."
 (defvar sc-fill-begin 1
   "Buffer position to begin filling.")
 (defvar sc-fill-line-prefix ""
-  "Fill prefix of previous line")
+  "Fill prefix of previous line.")
 
 ;; filling
 (defun sc-fill-if-different (&optional prefix)
@@ -1767,7 +1767,7 @@ is determined non-interactively.  The value is queried for in the
 minibuffer exactly the same way that `set-variable' does it.
 
 You can see the current value of the variable when the minibuffer is
-querying you by typing `C-h'.  Note that the format is changed
+querying you by typing \\`C-h'.  Note that the format is changed
 slightly from that used by `set-variable' -- the current value is
 printed just after the variable's name instead of at the bottom of the
 help window."

@@ -247,6 +247,16 @@ protected by @code{shell-quote-argument};
 @code{combine-and-quote-strings} is @emph{not} intended to protect
 special characters from shell evaluation.
 
+@defun split-string-shell-command string
+This function splits @var{string} into substrings, respecting double
+and single quotes, as well as backslash quoting.
+
+@smallexample
+(split-string-shell-command "ls /tmp/'foo bar'")
+     @result{} ("ls" "/tmp/foo bar")
+@end smallexample
+@end defun
+
 @defun split-string-and-unquote string &optional separators
 This function splits @var{string} into substrings at matches for the
 regular expression @var{separators}, like @code{split-string} does
@@ -956,6 +966,15 @@ use the function @code{process-tty-name} (@pxref{Process
 Information}).
 @end defvar
 
+@defvar process-error-pause-time
+If a process sentinel/filter function has an error, Emacs will (by
+default) pause Emacs for @code{process-error-pause-time} seconds after
+displaying this error, so that users will see the error in question.
+However, this can lead to situations where Emacs becomes unresponsive
+(if there's a lot of these errors happening), so this can be disabled
+by setting @code{process-error-pause-time} to 0.
+@end defvar
+
 @node Deleting Processes
 @section Deleting Processes
 @cindex deleting processes
@@ -1035,6 +1054,19 @@ This function returns a list of all processes that have not been deleted.
      @result{} (#<process display-time> #<process shell>)
 @end group
 @end smallexample
+@end defun
+
+@defun num-processors &optional query
+This function returns the number of processors, a positive integer.
+Each usable thread execution unit counts as a processor.
+By default, the count includes the number of available processors,
+which you can override by setting the
+@url{https://www.openmp.org/spec-html/5.1/openmpse59.html,
+@env{OMP_NUM_THREADS} environment variable of OpenMP}.
+If the optional argument @var{query} is @code{current},
+this function ignores @env{OMP_NUM_THREADS};
+if @var{query} is @code{all}, this function also counts processors
+that are on the system but are not available to the current process.
 @end defun
 
 @defun get-process name
@@ -1756,9 +1788,12 @@ or more batches of output; one way to do this is to insert the
 received text into a temporary buffer, which can then be searched.
 
 @defun set-process-filter process filter
-This function gives @var{process} the filter function @var{filter}.  If
-@var{filter} is @code{nil}, it gives the process the default filter,
-which inserts the process output into the process buffer.
+This function gives @var{process} the filter function @var{filter}.
+If @var{filter} is @code{nil}, it gives the process the default
+filter, which inserts the process output into the process buffer.  If
+@var{filter} is @code{t}, Emacs stops accepting output from the
+process, unless it's a network server process that listens for
+incoming connections.
 @end defun
 
 @defun process-filter process

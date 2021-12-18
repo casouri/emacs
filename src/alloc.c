@@ -129,6 +129,7 @@ union emacs_align_type
   struct Lisp_Overlay Lisp_Overlay;
   struct Lisp_Sub_Char_Table Lisp_Sub_Char_Table;
   struct Lisp_Subr Lisp_Subr;
+  struct Lisp_Sqlite Lisp_Sqlite;
   struct Lisp_User_Ptr Lisp_User_Ptr;
   struct Lisp_Vector Lisp_Vector;
   struct terminal terminal;
@@ -769,7 +770,7 @@ xmalloc (size_t size)
   val = lmalloc (size, false);
   MALLOC_UNBLOCK_INPUT;
 
-  if (!val && size)
+  if (!val)
     memory_full (size);
   MALLOC_PROBE (size);
   return val;
@@ -786,7 +787,7 @@ xzalloc (size_t size)
   val = lmalloc (size, true);
   MALLOC_UNBLOCK_INPUT;
 
-  if (!val && size)
+  if (!val)
     memory_full (size);
   MALLOC_PROBE (size);
   return val;
@@ -800,15 +801,15 @@ xrealloc (void *block, size_t size)
   void *val;
 
   MALLOC_BLOCK_INPUT;
-  /* We must call malloc explicitly when BLOCK is 0, since some
-     reallocs don't do this.  */
+  /* Call lmalloc when BLOCK is null, for the benefit of long-obsolete
+     platforms lacking support for realloc (NULL, size).  */
   if (! block)
     val = lmalloc (size, false);
   else
     val = lrealloc (block, size);
   MALLOC_UNBLOCK_INPUT;
 
-  if (!val && size)
+  if (!val)
     memory_full (size);
   MALLOC_PROBE (size);
   return val;
@@ -1034,7 +1035,7 @@ lisp_malloc (size_t nbytes, bool clearit, enum mem_type type)
 #endif
 
   MALLOC_UNBLOCK_INPUT;
-  if (!val && nbytes)
+  if (!val)
     memory_full (nbytes);
   MALLOC_PROBE (nbytes);
   return val;
@@ -1333,16 +1334,20 @@ laligned (void *p, size_t size)
 	  || size % LISP_ALIGNMENT != 0);
 }
 
-/* Like malloc and realloc except that if SIZE is Lisp-aligned, make
-   sure the result is too, if necessary by reallocating (typically
-   with larger and larger sizes) until the allocator returns a
-   Lisp-aligned pointer.  Code that needs to allocate C heap memory
+/* Like malloc and realloc except return null only on failure,
+   the result is Lisp-aligned if SIZE is, and lrealloc's pointer
+   argument must be nonnull.  Code allocating C heap memory
    for a Lisp object should use one of these functions to obtain a
    pointer P; that way, if T is an enum Lisp_Type value and L ==
    make_lisp_ptr (P, T), then XPNTR (L) == P and XTYPE (L) == T.
 
+   If CLEARIT, arrange for the allocated memory to be cleared.
+   This might use calloc, as calloc can be faster than malloc+memset.
+
    On typical modern platforms these functions' loops do not iterate.
-   On now-rare (and perhaps nonexistent) platforms, the loops in
+   On now-rare (and perhaps nonexistent) platforms, the code can loop,
+   reallocating (typically with larger and larger sizes) until the
+   allocator returns a Lisp-aligned pointer.  This loop in
    theory could repeat forever.  If an infinite loop is possible on a
    platform, a build would surely loop and the builder can then send
    us a bug report.  Adding a counter to try to detect any such loop
@@ -1356,8 +1361,13 @@ lmalloc (size_t size, bool clearit)
   if (! MALLOC_IS_LISP_ALIGNED && size % LISP_ALIGNMENT == 0)
     {
       void *p = aligned_alloc (LISP_ALIGNMENT, size);
-      if (clearit && p)
-	memclear (p, size);
+      if (p)
+	{
+	  if (clearit)
+	    memclear (p, size);
+	}
+      else if (! (MALLOC_0_IS_NONNULL || size))
+	return aligned_alloc (LISP_ALIGNMENT, LISP_ALIGNMENT);
       return p;
     }
 #endif
@@ -1365,7 +1375,7 @@ lmalloc (size_t size, bool clearit)
   while (true)
     {
       void *p = clearit ? calloc (1, size) : malloc (size);
-      if (laligned (p, size))
+      if (laligned (p, size) && (MALLOC_0_IS_NONNULL || size || p))
 	return p;
       free (p);
       size_t bigger = size + LISP_ALIGNMENT;
@@ -1380,7 +1390,7 @@ lrealloc (void *p, size_t size)
   while (true)
     {
       p = realloc (p, size);
-      if (laligned (p, size))
+      if (laligned (p, size) && (size || p))
 	return p;
       size_t bigger = size + LISP_ALIGNMENT;
       if (size < bigger)
@@ -1933,8 +1943,7 @@ allocate_string_data (struct Lisp_String *s,
    The character is at byte offset CIDX_BYTE in the string.
    The character being replaced is CLEN bytes long,
    and the character that will replace it is NEW_CLEN bytes long.
-   Return the address of where the caller should store the
-   the new character.  */
+   Return the address where the caller should store the new character.  */
 
 unsigned char *
 resize_string_data (Lisp_Object string, ptrdiff_t cidx_byte,
@@ -3165,26 +3174,26 @@ cleanup_vector (struct Lisp_Vector *vector)
       module_finalize_function (function);
     }
 #endif
-  else if (NATIVE_COMP_FLAG
-	   && PSEUDOVECTOR_TYPEP (&vector->header, PVEC_NATIVE_COMP_UNIT))
+#ifdef HAVE_NATIVE_COMP
+  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_NATIVE_COMP_UNIT))
     {
       struct Lisp_Native_Comp_Unit *cu =
 	PSEUDOVEC_STRUCT (vector, Lisp_Native_Comp_Unit);
       unload_comp_unit (cu);
     }
-  else if (NATIVE_COMP_FLAG
-	   && PSEUDOVECTOR_TYPEP (&vector->header, PVEC_SUBR))
+  else if (PSEUDOVECTOR_TYPEP (&vector->header, PVEC_SUBR))
     {
       struct Lisp_Subr *subr =
 	PSEUDOVEC_STRUCT (vector, Lisp_Subr);
-      if (!NILP (subr->native_comp_u[0]))
+      if (!NILP (subr->native_comp_u))
 	{
 	  /* FIXME Alternative and non invasive solution to this
 	     cast?  */
 	  xfree ((char *)subr->symbol_name);
-	  xfree (subr->native_c_name[0]);
+	  xfree (subr->native_c_name);
 	}
     }
+#endif
 }
 
 /* Reclaim space used by unmarked vectors.  */
@@ -4753,7 +4762,7 @@ live_small_vector_p (struct mem_node *m, void *p)
    marked.  */
 
 static void
-mark_maybe_pointer (void *p)
+mark_maybe_pointer (void *p, bool symbol_only)
 {
   struct mem_node *m;
 
@@ -4768,14 +4777,32 @@ mark_maybe_pointer (void *p)
      definitely _don't_ have an object.  */
   if (pdumper_object_p (p))
     {
+      /* FIXME: This code assumes that every reachable pdumper object
+	 is addressed either by a pointer to the object start, or by
+	 the same pointer with an LSB-style tag.  This assumption
+	 fails if a pdumper object is reachable only via machine
+	 addresses of non-initial object components.  Although such
+	 addressing is rare in machine code generated by C compilers
+	 from Emacs source code, it can occur in some cases.  To fix
+	 this problem, the pdumper code should grok non-initial
+	 addresses, as the non-pdumper code does.  */
+      uintptr_t mask = VALMASK & UINTPTR_MAX;
+      uintptr_t masked_p = (uintptr_t) p & mask;
+      void *po = (void *) masked_p;
+      char *cp = p;
+      char *cpo = po;
       /* Don't use pdumper_object_p_precise here! It doesn't check the
          tag bits. OBJ here might be complete garbage, so we need to
          verify both the pointer and the tag.  */
-      int type = pdumper_find_object_type (p);
-      if (pdumper_valid_object_type_p (type))
-        mark_object (type == Lisp_Symbol
-                     ? make_lisp_symbol (p)
-                     : make_lisp_ptr (p, type));
+      int type = pdumper_find_object_type (po);
+      if (pdumper_valid_object_type_p (type)
+	  && (!USE_LSB_TAG || p == po || cp - cpo == type))
+	{
+	  if (type == Lisp_Symbol)
+	    mark_object (make_lisp_symbol (po));
+	  else if (!symbol_only)
+	    mark_object (make_lisp_ptr (po, type));
+	}
       return;
     }
 
@@ -4793,6 +4820,8 @@ mark_maybe_pointer (void *p)
 
 	case MEM_TYPE_CONS:
 	  {
+	    if (symbol_only)
+	      return;
 	    struct Lisp_Cons *h = live_cons_holding (m, p);
 	    if (!h)
 	      return;
@@ -4802,6 +4831,8 @@ mark_maybe_pointer (void *p)
 
 	case MEM_TYPE_STRING:
 	  {
+	    if (symbol_only)
+	      return;
 	    struct Lisp_String *h = live_string_holding (m, p);
 	    if (!h)
 	      return;
@@ -4820,6 +4851,8 @@ mark_maybe_pointer (void *p)
 
 	case MEM_TYPE_FLOAT:
 	  {
+	    if (symbol_only)
+	      return;
 	    struct Lisp_Float *h = live_float_holding (m, p);
 	    if (!h)
 	      return;
@@ -4829,6 +4862,8 @@ mark_maybe_pointer (void *p)
 
 	case MEM_TYPE_VECTORLIKE:
 	  {
+	    if (symbol_only)
+	      return;
 	    struct Lisp_Vector *h = live_large_vector_holding (m, p);
 	    if (!h)
 	      return;
@@ -4838,6 +4873,8 @@ mark_maybe_pointer (void *p)
 
 	case MEM_TYPE_VECTOR_BLOCK:
 	  {
+	    if (symbol_only)
+	      return;
 	    struct Lisp_Vector *h = live_small_vector_holding (m, p);
 	    if (!h)
 	      return;
@@ -4899,7 +4936,7 @@ mark_memory (void const *start, void const *end)
   for (pp = start; (void const *) pp < end; pp += GC_POINTER_ALIGNMENT)
     {
       void *p = *(void *const *) pp;
-      mark_maybe_pointer (p);
+      mark_maybe_pointer (p, false);
 
       /* Unmask any struct Lisp_Symbol pointer that make_lisp_symbol
 	 previously disguised by adding the address of 'lispsym'.
@@ -4908,7 +4945,7 @@ mark_memory (void const *start, void const *end)
 	 non-adjacent words and P might be the low-order word's value.  */
       intptr_t ip;
       INT_ADD_WRAPV ((intptr_t) p, (intptr_t) lispsym, &ip);
-      mark_maybe_pointer ((void *) ip);
+      mark_maybe_pointer ((void *) ip, true);
     }
 }
 
@@ -6126,6 +6163,10 @@ garbage_collect (void)
   xg_mark_data ();
 #endif
 
+#ifdef HAVE_HAIKU
+  mark_haiku_display ();
+#endif
+
 #ifdef HAVE_WINDOW_SYSTEM
   mark_fringe_data ();
 #endif
@@ -6758,15 +6799,17 @@ mark_object (Lisp_Object arg)
 	    break;
 
 	  case PVEC_SUBR:
+#ifdef HAVE_NATIVE_COMP
 	    if (SUBR_NATIVE_COMPILEDP (obj))
 	      {
 		set_vector_marked (ptr);
 		struct Lisp_Subr *subr = XSUBR (obj);
 		mark_object (subr->native_intspec);
-		mark_object (subr->native_comp_u[0]);
-		mark_object (subr->lambda_list[0]);
-		mark_object (subr->type[0]);
+		mark_object (subr->native_comp_u);
+		mark_object (subr->lambda_list);
+		mark_object (subr->type);
 	      }
+#endif
 	    break;
 
 	  case PVEC_FREE:
@@ -7303,7 +7346,7 @@ Frames, windows, buffers, and subprocesses count as vectors
 		make_int (strings_consed));
 }
 
-#ifdef GNU_LINUX
+#if defined GNU_LINUX && defined __GLIBC__
 DEFUN ("malloc-info", Fmalloc_info, Smalloc_info, 0, 0, "",
        doc: /* Report malloc information to stderr.
 This function outputs to stderr an XML-formatted
@@ -7663,7 +7706,7 @@ N should be nonnegative.  */);
   defsubr (&Sgarbage_collect_maybe);
   defsubr (&Smemory_info);
   defsubr (&Smemory_use_counts);
-#ifdef GNU_LINUX
+#if defined GNU_LINUX && defined __GLIBC__
   defsubr (&Smalloc_info);
 #endif
   defsubr (&Ssuspicious_object);

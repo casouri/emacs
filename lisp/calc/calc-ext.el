@@ -1266,27 +1266,23 @@ calc-kill calc-kill-region calc-yank))))
 	   (math-normalize val)))))
 
 
-(defvar calc-help-map nil)
-
-(if calc-help-map
-    nil
-  (setq calc-help-map (make-keymap))
-  (define-key calc-help-map "b" 'calc-describe-bindings)
-  (define-key calc-help-map "c" 'calc-describe-key-briefly)
-  (define-key calc-help-map "f" 'calc-describe-function)
-  (define-key calc-help-map "h" 'calc-full-help)
-  (define-key calc-help-map "i" 'calc-info)
-  (define-key calc-help-map "k" 'calc-describe-key)
-  (define-key calc-help-map "n" 'calc-view-news)
-  (define-key calc-help-map "s" 'calc-info-summary)
-  (define-key calc-help-map "t" 'calc-tutorial)
-  (define-key calc-help-map "v" 'calc-describe-variable)
-  (define-key calc-help-map "\C-c" 'calc-describe-copying)
-  (define-key calc-help-map "\C-d" 'calc-describe-distribution)
-  (define-key calc-help-map "\C-n" 'calc-view-news)
-  (define-key calc-help-map "\C-w" 'calc-describe-no-warranty)
-  (define-key calc-help-map "?" 'calc-help-for-help)
-  (define-key calc-help-map "\C-h" 'calc-help-for-help))
+(defvar-keymap calc-help-map
+  "b"   'calc-describe-bindings
+  "c"   'calc-describe-key-briefly
+  "f"   'calc-describe-function
+  "h"   'calc-full-help
+  "i"   'calc-info
+  "k"   'calc-describe-key
+  "n"   'calc-view-news
+  "s"   'calc-info-summary
+  "t"   'calc-tutorial
+  "v"   'calc-describe-variable
+  "C-c" 'calc-describe-copying
+  "C-d" 'calc-describe-distribution
+  "C-n" 'calc-view-news
+  "C-w" 'calc-describe-no-warranty
+  "?"   'calc-help-for-help
+  "C-h" 'calc-help-for-help)
 
 (defvar calc-prefix-help-retry nil)
 (defvar calc-prefix-help-phase 0)
@@ -3088,7 +3084,7 @@ If X is not an error form, return 1."
 	  (math-read-big-err-msg nil)
 	  math-read-big-baseline math-read-big-h2
 	  new-pos p)
-      (while (setq new-pos (string-match "\n" str pos))
+      (while (setq new-pos (string-search "\n" str pos))
 	(setq math-read-big-lines
               (cons (substring str pos new-pos) math-read-big-lines)
 	      pos (1+ new-pos)))
@@ -3249,7 +3245,7 @@ If X is not an error form, return 1."
 	(t
 	 (let ((str (math-format-flat-expr x 0))
 	       (pos 0) p)
-	   (or (string-match "\"" str)
+	   (or (string-search "\"" str)
 	       (while (<= (setq p (+ pos w)) (length str))
 		 (while (and (> (setq p (1- p)) pos)
 			     (not (= (aref str p) ? ))))
@@ -3278,7 +3274,7 @@ If X is not an error form, return 1."
 			      (math-format-radix-float a prec))
 		   (format "%d#%s" calc-number-radix
 			   (math-format-radix-float a prec)))))
-	(if (and prec (> prec 191) (string-match "\\*" str))
+	(if (and prec (> prec 191) (string-search "*" str))
 	    (concat "(" str ")")
 	  str))))
    ((eq (car a) 'frac)
@@ -3418,7 +3414,7 @@ If X is not an error form, return 1."
 
 ;;; Users can redefine this in their init files.
 (defvar calc-keypad-user-menu nil
-  "If non-nil, this describes an additional menu for calc-keypad.
+  "If non-nil, this describes an additional menu for `calc-keypad'.
 It should contain a list of three rows.
 Each row should be a list of six keys.
 Each key should be a list of a label string, plus a Calc command name spec.

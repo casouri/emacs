@@ -22,6 +22,8 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
 ;;; Code:
 
 (require 'widget)
@@ -66,7 +68,7 @@ Do not call this mode function yourself.  It is meant for internal use."
   shadow secondary-selection trailing-whitespace
   font-lock-builtin-face font-lock-comment-delimiter-face
   font-lock-comment-face font-lock-constant-face
-  font-lock-doc-face font-lock-function-name-face
+  font-lock-doc-face font-lock-doc-markup-face font-lock-function-name-face
   font-lock-keyword-face font-lock-negation-char-face
   font-lock-preprocessor-face font-lock-regexp-grouping-backslash
   font-lock-regexp-grouping-construct font-lock-string-face
@@ -108,66 +110,66 @@ named *Custom Theme*."
     (unless (y-or-n-p "Include basic face customizations in this theme? ")
       (setq custom-theme--listed-faces nil)))
 
-  (if (eq theme 'user)
-      (widget-insert "This buffer contains all the Custom settings you have made.
-You can convert them into a new custom theme, and optionally
-remove them from your saved Custom file.\n\n"))
-
-  (widget-create 'push-button
-		 :tag " Visit Theme "
-		 :help-echo "Insert the settings of a pre-defined theme."
-		 :action (lambda (_widget &optional _event)
-                           (call-interactively #'custom-theme-visit-theme)))
-  (widget-insert "  ")
-  (widget-create 'push-button
-		 :tag " Merge Theme "
-		 :help-echo "Merge in the settings of a pre-defined theme."
-		 :action (lambda (_widget &optional _event)
-                           (call-interactively #'custom-theme-merge-theme)))
-  (widget-insert "  ")
-  (widget-create 'push-button
-		 :tag " Revert "
-		 :help-echo "Revert this buffer to its original state."
-		 :action (lambda (&rest ignored) (revert-buffer)))
-
-  (widget-insert "\n\nTheme name : ")
-  (setq custom-theme-name
-	(widget-create 'editable-field
-		       :value (if (and theme (not (eq theme 'user)))
-				  (symbol-name theme)
-				"")))
-  (widget-insert "Description: ")
-  (setq custom-theme-description
-	(widget-create 'text
-		       :value (format-time-string "Created %Y-%m-%d.")))
-  (widget-create 'push-button
-                 :notify #'custom-theme-write
-     		 " Save Theme ")
-  (when (eq theme 'user)
-    (setq custom-theme--migrate-settings t)
-    (widget-insert "  ")
-    (widget-create 'checkbox
-		   :value custom-theme--migrate-settings
-		   :action (lambda (widget &optional event)
-			     (when (widget-value widget)
-			       (widget-toggle-action widget event)
-			       (setq custom-theme--migrate-settings
-				     (widget-value widget)))))
-    (widget-insert (propertize " Remove saved theme settings from Custom save file."
-			       'face '(variable-pitch (:height 0.9)))))
-
   (let (vars values faces face-specs)
 
     ;; Load the theme settings.
     (when theme
-      (unless (eq theme 'user)
-	(load-theme theme nil t))
+      (if (eq theme 'user)
+          (widget-insert "This buffer contains all the Custom settings you have made.
+You can convert them into a new custom theme, and optionally
+remove them from your saved Custom file.\n\n")
+        (load-theme theme nil t))
+
       (dolist (setting (get theme 'theme-settings))
 	(if (eq (car setting) 'theme-value)
 	    (progn (push (nth 1 setting) vars)
 	    	   (push (nth 3 setting) values))
 	  (push (nth 1 setting) faces)
 	  (push (nth 3 setting) face-specs))))
+
+    (widget-create 'push-button
+		   :tag " Visit Theme "
+		   :help-echo "Insert the settings of a pre-defined theme."
+		   :action (lambda (_widget &optional _event)
+                             (call-interactively #'custom-theme-visit-theme)))
+    (widget-insert "  ")
+    (widget-create 'push-button
+		   :tag " Merge Theme "
+		   :help-echo "Merge in the settings of a pre-defined theme."
+		   :action (lambda (_widget &optional _event)
+                             (call-interactively #'custom-theme-merge-theme)))
+    (widget-insert "  ")
+    (widget-create 'push-button
+		   :tag " Revert "
+		   :help-echo "Revert this buffer to its original state."
+		   :action (lambda (&rest ignored) (revert-buffer)))
+
+    (widget-insert "\n\nTheme name : ")
+    (setq custom-theme-name
+	  (widget-create 'editable-field
+		         :value (if (and theme (not (eq theme 'user)))
+				    (symbol-name theme)
+				  "")))
+    (widget-insert "Description: ")
+    (setq custom-theme-description
+          (widget-create 'text :format "%v"
+                         :value (or (get theme 'theme-documentation)
+                                    (format-time-string "Created %Y-%m-%d."))))
+    (widget-create 'push-button
+                   :notify #'custom-theme-write
+                   " Save Theme ")
+    (when (eq theme 'user)
+      (setq custom-theme--migrate-settings t)
+      (widget-insert "  ")
+      (widget-create 'checkbox
+		     :value custom-theme--migrate-settings
+		     :action (lambda (widget &optional event)
+			       (when (widget-value widget)
+			         (widget-toggle-action widget event)
+			         (setq custom-theme--migrate-settings
+				       (widget-value widget)))))
+      (widget-insert (propertize " Remove saved theme settings from Custom save file."
+			         'face '(variable-pitch (:height 0.9)))))
 
     ;; If THEME is non-nil, insert all of that theme's faces.
     ;; Otherwise, insert those in `custom-theme--listed-faces'.
@@ -625,22 +627,24 @@ Theme files are named *-theme.el in `"))
   (let ((help-echo "mouse-2: Enable this theme for this session")
 	widget)
     (dolist (theme (custom-available-themes))
-      (setq widget (widget-create 'checkbox
-				  :value (custom-theme-enabled-p theme)
-				  :theme-name theme
-				  :help-echo help-echo
-                                  :action #'custom-theme-checkbox-toggle))
-      (push (cons theme widget) custom--listed-themes)
-      (widget-create-child-and-convert widget 'push-button
-				       :button-face-get 'ignore
-				       :mouse-face-get 'ignore
-				       :value (format " %s" theme)
-                                       :action #'widget-parent-action
-				       :help-echo help-echo)
-      (widget-insert " -- "
-		     (propertize (custom-theme-summary theme)
-				 'face 'shadow)
-		     ?\n)))
+      ;; Don't list obsolete themes.
+      (unless (get theme 'byte-obsolete-info)
+        (setq widget (widget-create 'checkbox
+				    :value (custom-theme-enabled-p theme)
+				    :theme-name theme
+				    :help-echo help-echo
+                                    :action #'custom-theme-checkbox-toggle))
+        (push (cons theme widget) custom--listed-themes)
+        (widget-create-child-and-convert widget 'push-button
+				         :button-face-get 'ignore
+				         :mouse-face-get 'ignore
+				         :value (format " %s" theme)
+                                         :action #'widget-parent-action
+				         :help-echo help-echo)
+        (widget-insert " -- "
+		       (propertize (custom-theme-summary theme)
+				   'face 'shadow)
+		       ?\n))))
   (goto-char (point-min))
   (widget-setup))
 

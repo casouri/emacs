@@ -105,7 +105,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* Flag which when set indicates a dialog or menu has been posted by
    Xt on behalf of one of the widget sets.  */
+#ifndef HAVE_XINPUT2
 static int popup_activated_flag;
+#else
+int popup_activated_flag;
+#endif
 
 
 #ifdef USE_X_TOOLKIT
@@ -1603,6 +1607,14 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
 				  STRINGP (help) ? help : Qnil);
 	  if (prev_wv)
 	    prev_wv->next = wv;
+	  else if (!save_wv)
+	    {
+	      /* This emacs_abort call pacifies gcc 11.2.1 when Emacs
+		 is configured with --enable-gcc-warnings.  FIXME: If
+		 save_wv can be null, do something better; otherwise,
+		 explain why save_wv cannot be null.  */
+	      emacs_abort ();
+	    }
 	  else
 	    save_wv->contents = wv;
 	  if (!NILP (descrip))

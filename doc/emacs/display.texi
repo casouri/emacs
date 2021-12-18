@@ -150,6 +150,14 @@ gives you less jerky scrolling when you hold down @kbd{C-v}, but the
 window contents after any action which scrolls into a fresh portion of
 the buffer will be momentarily unfontified.
 
+@vindex redisplay-skip-fontification-on-input
+Finally, a third alternative to these variables is
+@code{redisplay-skip-fontification-on-input}.  If this variable is
+non-@code{nil}, skip some fontifications is there's input pending.
+This usually does not affect the display because redisplay is
+completely skipped anyway if input was pending, but it can make
+scrolling smoother by avoiding unnecessary fontification.
+
 @vindex scroll-up
 @vindex scroll-down
 @findex scroll-up-line
@@ -634,24 +642,41 @@ apply them to specific text when you want the effects they produce.
 @item default
 This face is used for ordinary text that doesn't specify any face.
 Its background color is used as the frame's background color.
+
 @item bold
 This face uses a bold variant of the default font.
+
 @item italic
 This face uses an italic variant of the default font.
+
 @item bold-italic
 This face uses a bold italic variant of the default font.
+
 @item underline
 This face underlines text.
+
 @item fixed-pitch
 This face forces use of a fixed-width font.  It's reasonable to
 customize this face to use a different fixed-width font, if you like,
 but you should not make it a variable-width font.
+
 @item fixed-pitch-serif
 This face is like @code{fixed-pitch}, except the font has serifs and
 looks more like traditional typewriting.
+
 @cindex @code{variable-pitch} face
 @item variable-pitch
-This face forces use of a variable-width font.
+This face forces use of a variable-width (i.e., proportional) font.
+The font size picked for this face matches the font picked for the
+default (usually fixed-width) font.
+
+@item variable-pitch-text
+This is like the @code{variable-pitch} face (from which it inherits),
+but is slightly larger.  A proportional font of the same height as a
+monospace font usually appears visually smaller, and can therefore be
+harder to read.  When displaying longer texts, this face can be a good
+choice over the (slightly smaller) @code{variable-pitch} face.
+
 @cindex @code{shadow} face
 @item shadow
 This face is used for making the text less noticeable than the surrounding
@@ -708,46 +733,62 @@ frame:
 @table @code
 @item mode-line
 @cindex @code{mode-line} face
-@cindex faces for mode lines
-This face is used for the mode line of the currently selected window,
+This is the base face used for the mode lines, as well as header lines
 and for menu bars when toolkit menus are not used.  By default, it's
 drawn with shadows for a raised effect on graphical displays, and
 drawn as the inverse of the default face on non-windowed terminals.
+
+The @code{mode-line-active} and @code{mode-line-inactive} faces (which
+are the ones used on the mode lines) inherit from this face.
+
+@item mode-line-active
+@cindex faces for mode lines
+Like @code{mode-line}, but used for the mode line of the currently
+selected window.  This face inherits from @code{mode-line}, so changes
+in that face affect mode lines in all windows.
+
 @item mode-line-inactive
 @cindex @code{mode-line-inactive} face
 Like @code{mode-line}, but used for mode lines of the windows other
 than the selected one (if @code{mode-line-in-non-selected-windows} is
 non-@code{nil}).  This face inherits from @code{mode-line}, so changes
 in that face affect mode lines in all windows.
+
 @item mode-line-highlight
 @cindex @code{mode-line-highlight} face
 Like @code{highlight}, but used for mouse-sensitive portions of text
 on mode lines.  Such portions of text typically pop up tooltips
 (@pxref{Tooltips}) when the mouse pointer hovers above them.
+
 @item mode-line-buffer-id
 @cindex @code{mode-line-buffer-id} face
 This face is used for buffer identification parts in the mode line.
+
 @item header-line
 @cindex @code{header-line} face
 Similar to @code{mode-line} for a window's header line, which appears
 at the top of a window just as the mode line appears at the bottom.
 Most windows do not have a header line---only some special modes, such
 Info mode, create one.
+
 @item header-line-highlight
 @cindex @code{header-line-highlight} face
 Similar to @code{highlight} and @code{mode-line-highlight}, but used
 for mouse-sensitive portions of text on header lines.  This is a
 separate face because the @code{header-line} face might be customized
 in a way that does not interact well with @code{highlight}.
+
 @item tab-line
 @cindex @code{tab-line} face
 Similar to @code{mode-line} for a window's tab line, which appears
 at the top of a window with tabs representing window buffers.
 @xref{Tab Line}.
+
 @item vertical-border
 @cindex @code{vertical-border} face
 This face is used for the vertical divider between windows on text
 terminals.
+
 @item minibuffer-prompt
 @cindex @code{minibuffer-prompt} face
 @vindex minibuffer-prompt-properties
@@ -757,19 +798,23 @@ By default, Emacs automatically adds this face to the value of
 properties (@pxref{Text Properties,,, elisp, the Emacs Lisp Reference
 Manual}) used to display the prompt text.  (This variable takes effect
 when you enter the minibuffer.)
+
 @item fringe
 @cindex @code{fringe} face
 The face for the fringes to the left and right of windows on graphic
 displays.  (The fringes are the narrow portions of the Emacs frame
 between the text area and the window's right and left borders.)
 @xref{Fringes}.
+
 @item cursor
 The @code{:background} attribute of this face specifies the color of
 the text cursor.  @xref{Cursor Display}.
+
 @item tooltip
 This face is used for tooltip text.  By default, if Emacs is built
 with GTK+ support, tooltips are drawn via GTK+ and this face has no
 effect.  @xref{Tooltips}.
+
 @item mouse
 This face determines the color of the mouse pointer.
 @end table
@@ -1189,8 +1234,8 @@ that has some special meaning for formatting the source code of a
 program.
 
   To activate the fill-column indication display, use the minor modes
-@kbd{M-x display-fill-@-column-indicator-mode} and
-@kbd{M-x global-display-fill-column-indicator-mode}, which enable
+@code{display-fill-@-column-indicator-mode} and
+@code{global-display-fill-column-indicator-mode}, which enable
 the indicator locally or globally, respectively.
 
 Alternatively, you can set the two buffer-local variables
@@ -1645,6 +1690,12 @@ characters more prominent on display.  @xref{Glyphless Chars,,
 Glyphless Character Display, elisp, The Emacs Lisp Reference Manual},
 for details.
 
+@findex glyphless-display-mode
+  The @code{glyphless-display-mode} minor mode can be used to toggle
+the display of glyphless characters in the current buffer.  The
+glyphless characters will be displayed as boxes with acronyms of their
+names inside.
+
 @cindex curly quotes, and terminal capabilities
 @cindex curved quotes, and terminal capabilities
 @cindex @code{homoglyph} face
@@ -1767,6 +1818,10 @@ multiple screen lines.  Setting the variable @code{truncate-lines} in
 any way makes it local to the current buffer; until that time, the
 default value, which is normally @code{nil}, is in effect.
 
+  Since line truncation and word wrap (described in the next section)
+are contradictory, @code{toggle-truncate-lines} disables word wrap
+when it turns on line truncation.
+
   If a split window becomes too narrow, Emacs may automatically enable
 line truncation.  @xref{Split Window}, for the variable
 @code{truncate-partial-width-windows} which controls this.
@@ -1796,6 +1851,10 @@ the @samp{Word Wrap (Visual Line mode)} menu item.  While Visual Line
 mode is enabled, the mode line shows the string @samp{wrap} in the
 mode display.  The command @kbd{M-x global-visual-line-mode} toggles
 Visual Line mode in all buffers.
+
+  Since word wrap and line truncation (described in the previous
+section) are contradictory, turning on @code{visual-line-mode}
+disables line truncation.
 
 @findex beginning-of-visual-line
 @findex end-of-visual-line

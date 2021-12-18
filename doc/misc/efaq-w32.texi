@@ -628,7 +628,7 @@ REGEDIT4
 @node Swap Caps 98
 @subsubsection Windows 95/98/ME
 
-Microsoft has a tool called keyremap that is part of their Kernel Toys add ons
+Microsoft has a tool called keyremap that is part of their Kernel Toys add-ons
 for Windows 95.  The tool has also been confirmed to work on Windows 98.
 
 @node Make Emacs like a Windows app
@@ -2278,7 +2278,7 @@ In Emacs, you can browse the manual using Info by typing @kbd{C-h r},
 and you can view the FAQ by typing @kbd{C-h C-f}. Other resources include:
 
 @itemize
-@item @uref{https://www.gnu.org/software/emacs/, The Emacs homepage}
+@item @uref{https://www.gnu.org/software/emacs/, The Emacs website}
 @item @uref{https://www.gnu.org/software/emacs/manual/, Other Emacs manuals}
 @item @uref{https://www.emacswiki.org/, Emacs Wiki}
 @end itemize

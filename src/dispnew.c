@@ -473,6 +473,11 @@ adjust_glyph_matrix (struct window *w, struct glyph_matrix *matrix, int x, int y
 		= row->glyphs[LEFT_MARGIN_AREA] + left;
 	      row->glyphs[RIGHT_MARGIN_AREA]
 		= row->glyphs[TEXT_AREA] + dim.width - left - right;
+	      /* Leave room for a border glyph.  */
+	      if (!FRAME_WINDOW_P (XFRAME (w->frame))
+		  && !WINDOW_RIGHTMOST_P (w)
+		  && right > 0)
+		row->glyphs[RIGHT_MARGIN_AREA] -= 1;
 	      row->glyphs[LAST_AREA]
 		= row->glyphs[LEFT_MARGIN_AREA] + dim.width;
 	    }
@@ -1029,7 +1034,7 @@ copy_row_except_pointers (struct glyph_row *to, struct glyph_row *from)
 {
   enum { off = offsetof (struct glyph_row, x) };
 
-  memcpy (&to->x, &from->x, sizeof *to - off);
+  memcpy ((char *) to + off, (char *) from + off, sizeof *to - off);
 }
 
 
@@ -1140,7 +1145,14 @@ prepare_desired_row (struct window *w, struct glyph_row *row, bool mode_line_p)
 	row->glyphs[TEXT_AREA] = row->glyphs[LEFT_MARGIN_AREA] + left;
       if (w->right_margin_cols > 0
 	  && (right != row->glyphs[LAST_AREA] - row->glyphs[RIGHT_MARGIN_AREA]))
-	row->glyphs[RIGHT_MARGIN_AREA] = row->glyphs[LAST_AREA] - right;
+	{
+	  row->glyphs[RIGHT_MARGIN_AREA] = row->glyphs[LAST_AREA] - right;
+	  /* Leave room for a border glyph.  */
+	  if (!FRAME_WINDOW_P (XFRAME (w->frame))
+	      && !WINDOW_RIGHTMOST_P (w)
+	      && right > 0)
+	    row->glyphs[RIGHT_MARGIN_AREA] -= 1;
+	}
     }
 }
 
@@ -3838,6 +3850,9 @@ gui_update_window_end (struct window *w, bool cursor_on_p,
 				w->output_cursor.hpos, w->output_cursor.vpos,
 				w->output_cursor.x, w->output_cursor.y);
 
+      if (cursor_in_mouse_face_p (w) && cursor_on_p)
+	mouse_face_overwritten_p = 1;
+
       if (draw_window_fringes (w, true))
 	{
 	  if (WINDOW_RIGHT_DIVIDER_WIDTH (w))
@@ -4433,16 +4448,6 @@ scrolling_window (struct window *w, int tab_line_p)
       else
 	break;
     }
-
-#ifdef HAVE_XWIDGETS
-  /* Currently this seems needed to detect xwidget movement reliably.
-     This is most probably because an xwidget glyph is represented in
-     struct glyph's 'union u' by a pointer to a struct, which takes 8
-     bytes in 64-bit builds, and thus the comparison of u.val values
-     done by GLYPH_EQUAL_P doesn't work reliably, since it assumes the
-     size of the union is 4 bytes.  FIXME.  */
-    return 0;
-#endif
 
   /* Can't scroll the display of w32 GUI frames when position of point
      is indicated by the system caret, because scrolling the display
@@ -6141,7 +6146,7 @@ sit_for (Lisp_Object timeout, bool reading, int display_option)
     wrong_type_argument (Qnumberp, timeout);
 
 
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   gobble_input ();
 #endif
 
@@ -6448,6 +6453,15 @@ init_display_interactive (void)
     }
 #endif
 
+#ifdef HAVE_HAIKU
+  if (!inhibit_window_system && !will_dump_p ())
+    {
+      Vinitial_window_system = Qhaiku;
+      Vwindow_system_version = make_fixnum (1);
+      return;
+    }
+#endif
+
   /* If no window system has been specified, try to use the terminal.  */
   if (! isatty (STDIN_FILENO))
     fatal ("standard input is not a tty");
@@ -6694,7 +6708,7 @@ See `buffer-display-table' for more information.  */);
 
   DEFVAR_LISP ("tab-bar-position", Vtab_bar_position,
 	       doc: /* Specify on which side from the tool bar the tab bar shall be.
-Possible values are `t' (below the tool bar), `nil' (above the tool bar).
+Possible values are t (below the tool bar), nil (above the tool bar).
 This option affects only builds where the tool bar is not external.  */);
 
   pdumper_do_now_and_after_load (syms_of_display_for_pdumper);

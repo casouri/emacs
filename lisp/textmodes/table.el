@@ -61,7 +61,7 @@
 ;; holders.  Amazingly there have been no direct support for WYSIWYG
 ;; table editing tasks in Emacs.  Many people must have experienced
 ;; manipulating existing overwrite-mode and picture-mode for this task
-;; and only dreamed of having such a lisp package which supports this
+;; and only dreamed of having such a Lisp package which supports this
 ;; specific task directly.  Certainly, I have been one of them.  The
 ;; most difficult part of dealing with table editing in Emacs probably
 ;; is how to realize localized rectangular editing effect.  Emacs has
@@ -860,7 +860,7 @@ cell to cache and cache to cell.")
 This is always set to nil at the entry to `table-with-cache-buffer' before
 executing body forms.")
 (defvar-local table-mode-indicator nil
-  "For mode line indicator")
+  "For mode line indicator.")
 ;; This is not a real minor-mode but placed in the minor-mode-alist
 ;; so that we can show the indicator on the mode line handy.
 (unless (assq table-mode-indicator minor-mode-alist)
@@ -1190,10 +1190,25 @@ executing body forms.")
 
 ;; register table menu under global tools menu
 (easy-menu-define table-global-menu-map nil
-  "Table global menu" table-global-menu)
+  "Table global menu." table-global-menu)
 (easy-menu-add-item (current-global-map) '("menu-bar" "tools") "--")
 (easy-menu-add-item (current-global-map)
                     '("menu-bar" "tools") table-global-menu-map)
+
+;;;###autoload
+(define-minor-mode table-fixed-width-mode
+  "Cell width is fixed when this is non-nil.
+Normally it should be nil for allowing automatic cell width expansion
+that widens a cell when it is necessary.  When non-nil, typing in a
+cell does not automatically expand the cell width.  A word that is too
+long to fit in a cell is chopped into multiple lines.  The chopped
+location is indicated by `table-word-continuation-char'.  This
+variable's value can be toggled by \\[table-fixed-width-mode] at
+run-time."
+  :tag "Fix Cell Width"
+  :group 'table
+  (table--finish-delayed-tasks)
+  (table--update-cell-face))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -1219,43 +1234,49 @@ original buffer's point is moved to the location that corresponds to
 the last cache point coordinate."
   (declare (debug (body)) (indent 0))
   (let ((height-expansion (make-symbol "height-expansion-var-symbol"))
-	(width-expansion (make-symbol "width-expansion-var-symbol")))
-    `(let (,height-expansion ,width-expansion)
+	(width-expansion (make-symbol "width-expansion-var-symbol"))
+        (fixed-width (make-symbol "fixed-width")))
+    `(let ((,fixed-width table-fixed-width-mode)
+           ,height-expansion ,width-expansion)
        ;; make sure cache has valid data unless it is explicitly inhibited.
        (unless table-inhibit-update
 	 (table-recognize-cell))
        (with-current-buffer (get-buffer-create table-cache-buffer-name)
-	 ;; goto the cell coordinate based on `table-cell-cache-point-coordinate'.
-	 (set-mark (table--goto-coordinate table-cell-cache-mark-coordinate))
-	 (table--goto-coordinate table-cell-cache-point-coordinate)
-	 (table--untabify-line)
-	 ;; always reset before executing body forms because auto-fill behavior is the default.
-	 (setq table-inhibit-auto-fill-paragraph nil)
-	 ;; do the body
-	 ,@body
-	 ;; fill paragraph unless the body does not want to by setting `table-inhibit-auto-fill-paragraph'.
-	 (unless table-inhibit-auto-fill-paragraph
-	   (if (and table-cell-info-justify
-		    (not (eq table-cell-info-justify 'left)))
-	       (table--fill-region (point-min) (point-max))
-	     (table--fill-region
-	      (save-excursion (forward-paragraph -1) (point))
-	      (save-excursion (forward-paragraph 1) (point)))))
-	 ;; keep the updated cell coordinate.
-	 (setq table-cell-cache-point-coordinate (table--get-coordinate))
-	 ;; determine the cell width expansion.
-	 (setq ,width-expansion (table--measure-max-width))
-	 (if (<= ,width-expansion table-cell-info-width) nil
-	   (table--fill-region (point-min) (point-max) ,width-expansion)
-	   ;; keep the updated cell coordinate.
-	   (setq table-cell-cache-point-coordinate (table--get-coordinate)))
-	 (setq ,width-expansion (- ,width-expansion table-cell-info-width))
-	 ;; determine the cell height expansion.
-	 (if (looking-at "\\s *\\'") nil
-	   (goto-char (point-min))
-	   (if (re-search-forward "\\(\\s *\\)\\'" nil t)
-	       (goto-char (match-beginning 1))))
-	 (setq ,height-expansion (- (cdr (table--get-coordinate)) (1- table-cell-info-height))))
+         (let ((table-fixed-width-mode ,fixed-width))
+	   ;; Go to the cell coordinate based on
+	   ;; `table-cell-cache-point-coordinate'.
+	   (set-mark (table--goto-coordinate table-cell-cache-mark-coordinate))
+	   (table--goto-coordinate table-cell-cache-point-coordinate)
+	   (table--untabify-line)
+	   ;; Always reset before executing body forms because
+	   ;; auto-fill behavior is the default.
+	   (setq table-inhibit-auto-fill-paragraph nil)
+	   ;; Do the body
+	   ,@body
+	   ;; Fill paragraph unless the body does not want to by
+	   ;; setting `table-inhibit-auto-fill-paragraph'.
+	   (unless table-inhibit-auto-fill-paragraph
+	     (if (and table-cell-info-justify
+		      (not (eq table-cell-info-justify 'left)))
+	         (table--fill-region (point-min) (point-max))
+	       (table--fill-region
+	        (save-excursion (forward-paragraph -1) (point))
+	        (save-excursion (forward-paragraph 1) (point)))))
+	   ;; Keep the updated cell coordinate.
+	   (setq table-cell-cache-point-coordinate (table--get-coordinate))
+	   ;; Determine the cell width expansion.
+	   (setq ,width-expansion (table--measure-max-width))
+	   (if (<= ,width-expansion table-cell-info-width) nil
+	     (table--fill-region (point-min) (point-max) ,width-expansion)
+	     ;; Keep the updated cell coordinate.
+	     (setq table-cell-cache-point-coordinate (table--get-coordinate)))
+	   (setq ,width-expansion (- ,width-expansion table-cell-info-width))
+	   ;; Determine the cell height expansion.
+	   (if (looking-at "\\s *\\'") nil
+	     (goto-char (point-min))
+	     (if (re-search-forward "\\(\\s *\\)\\'" nil t)
+	         (goto-char (match-beginning 1))))
+	   (setq ,height-expansion (- (cdr (table--get-coordinate)) (1- table-cell-info-height)))))
        ;; now back to the table buffer.
        ;; expand the cell width in the table buffer if necessary.
        (if (> ,width-expansion 0)
@@ -2368,7 +2389,9 @@ table's rectangle structure."
   "Move point forward to the beginning of the next cell.
 With argument ARG, do it ARG times;
 a negative argument ARG = -N means move backward N cells.
-Do not specify NO-RECOGNIZE and UNRECOGNIZE. They are for internal use only.
+
+Do not specify NO-RECOGNIZE and UNRECOGNIZE.  They are for
+internal use only.
 
 Sample Cell Traveling Order (In Irregular Table Cases)
 
@@ -2399,8 +2422,7 @@ You can actually try how it works in this buffer.  Press
 +--+  |4 |  |4 |  +--+	|5 +--+--+6 |  |3 +--+--+4 |  |5 |     |6 |
 |5 +--+  |  |  +--+5 |	|  |7 |8 |  |  |  |5 |6 |  |  |  |     |  |
 |  |6 |  |  |  |6 |  |	+--+--+--+--+  +--+--+--+--+  +--+-----+--+
-+--+--+--+  +--+--+--+
-"
++--+--+--+  +--+--+--+"
   ;; After modifying this function, test against the above tables in
   ;; the doc string.  It is quite tricky.  The tables above do not
   ;; mean to cover every possible cases of cell layout, of course.
@@ -2822,21 +2844,6 @@ or `top', `middle', `bottom' or `none' for vertical."
 	  (table--justify-cell-contents justify))))))
 
 ;;;###autoload
-(define-minor-mode table-fixed-width-mode
-  "Cell width is fixed when this is non-nil.
-Normally it should be nil for allowing automatic cell width expansion
-that widens a cell when it is necessary.  When non-nil, typing in a
-cell does not automatically expand the cell width.  A word that is too
-long to fit in a cell is chopped into multiple lines.  The chopped
-location is indicated by `table-word-continuation-char'.  This
-variable's value can be toggled by \\[table-fixed-width-mode] at
-run-time."
-  :tag "Fix Cell Width"
-  :group 'table
-  (table--finish-delayed-tasks)
-  (table--update-cell-face))
-
-;;;###autoload
 (defun table-query-dimension (&optional where)
   "Return the dimension of the current cell and the current table.
 The result is a list (cw ch tw th c r cells) where cw is the cell
@@ -2915,8 +2922,7 @@ LaTeX:
 
 CALS (DocBook DTD):
         URL `https://www.oasis-open.org/html/a502.htm'
-        URL `https://www.oreilly.com/catalog/docbook/chapter/book/table.html#AEN114751'
-"
+        URL `https://www.oreilly.com/catalog/docbook/chapter/book/table.html#AEN114751'"
   (interactive
    (let* ((_ (unless (table--probe-cell) (error "Table not found here")))
 	  (completion-ignore-case t)
@@ -3206,7 +3212,7 @@ CALS (DocBook DTD):
 	(insert ?\n))))))
 
 (defun table--cell-horizontal-char-p (c)
-  "Test if character C is one of the horizontal characters"
+  "Test if character C is one of the horizontal characters."
   (memq c (string-to-list table-cell-horizontal-chars)))
 
 (defun table--generate-source-scan-lines (dest-buffer _language origin-cell tail-cell col-list row-list)
@@ -3625,8 +3631,7 @@ independently.
 
 By applying `table-release', which does the opposite process, the
 contents become once again plain text.  `table-release' works as
-companion command to `table-capture' this way.
-"
+companion command to `table-capture' this way."
   (interactive
    (let ((col-delim-regexp)
 	 (row-delim-regexp))
@@ -4535,7 +4540,7 @@ grow into."
 
 (defun table--untabify-line (&optional from)
   "Untabify current line.
-Unlike save-excursion this guarantees preserving the cursor location
+Unlike `save-excursion' this guarantees preserving the cursor location
 even when the point is on a tab character which is to be removed.
 Optional FROM narrows the subject operation from this point to the end
 of line."
@@ -5074,7 +5079,7 @@ signals error if the optional ABORT-ON-ERROR is non-nil."
 
 (defun table--insert-rectangle (rectangle)
   "Insert text of RECTANGLE with upper left corner at point.
-Same as insert-rectangle except that mark operation is eliminated."
+Same as `insert-rectangle' except that mark operation is eliminated."
   (let ((lines rectangle)
 	(insertcolumn (current-column))
 	(first t))
@@ -5290,7 +5295,7 @@ Current buffer must already be set to the cache buffer."
     (set-marker marker-point nil)))
 
 (defun table--fill-region-strictly (beg end)
-  "Fill region strictly so that no line exceeds fill-column.
+  "Fill region strictly so that no line exceeds `fill-column'.
 When a word exceeds fill-column the word is chopped into pieces.  The
 chopped location is indicated with table-word-continuation-char."
   (or (and (markerp beg) (markerp end))

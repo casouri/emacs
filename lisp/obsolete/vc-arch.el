@@ -24,7 +24,7 @@
 
 ;;; Commentary:
 
-;; The home page of the Arch version control system is at
+;; The Arch version control system website is at
 ;;
 ;;      https://www.gnu.org/software/gnu-arch/
 ;;
@@ -82,8 +82,6 @@ If nil, use the value of `vc-diff-switches'.  If t, use no switches."
 		 (string :tag "Argument String")
 		 (repeat :tag "Argument List" :value ("") string))
   :version "23.1")
-
-(define-obsolete-variable-alias 'vc-arch-command 'vc-arch-program "23.1")
 
 (defcustom vc-arch-program
   (let ((candidates '("tla" "baz")))

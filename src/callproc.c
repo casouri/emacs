@@ -28,6 +28,20 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/file.h>
 #include <fcntl.h>
 
+/* In order to be able to use `posix_spawn', it needs to support some
+   variant of `chdir' as well as `setsid'.  */
+#if defined HAVE_SPAWN_H && defined HAVE_POSIX_SPAWN        \
+  && defined HAVE_POSIX_SPAWNATTR_SETFLAGS                  \
+  && (defined HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR        \
+      || defined HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP) \
+  && defined HAVE_DECL_POSIX_SPAWN_SETSID                   \
+  && HAVE_DECL_POSIX_SPAWN_SETSID == 1
+# include <spawn.h>
+# define USABLE_POSIX_SPAWN 1
+#else
+# define USABLE_POSIX_SPAWN 0
+#endif
+
 #include "lisp.h"
 
 #ifdef SETUP_SLAVE_PTY
@@ -116,11 +130,13 @@ static CHILD_SETUP_TYPE child_setup (int, int, int, char **, char **,
 				     const char *);
 
 /* Return the current buffer's working directory, or the home
-   directory if it's unreachable, as a string suitable for a system call.
-   Signal an error if the result would not be an accessible directory.  */
+   directory if it's unreachable.  If ENCODE is true, return as a string
+   suitable for a system call; otherwise, return a string in its
+   internal representation.  Signal an error if the result would not be
+   an accessible directory.  */
 
 Lisp_Object
-encode_current_directory (void)
+get_current_directory (bool encode)
 {
   Lisp_Object curdir = BVAR (current_buffer, directory);
   Lisp_Object dir = Funhandled_file_name_directory (curdir);
@@ -131,12 +147,12 @@ encode_current_directory (void)
     dir = build_string ("~");
 
   dir = expand_and_dir_to_file (dir);
-  dir = ENCODE_FILE (remove_slash_colon (dir));
+  Lisp_Object encoded_dir = ENCODE_FILE (remove_slash_colon (dir));
 
-  if (! file_accessible_directory_p (dir))
+  if (! file_accessible_directory_p (encoded_dir))
     report_file_error ("Setting current directory", curdir);
 
-  return dir;
+  return encode ? encoded_dir : dir;
 }
 
 /* If P is reapable, record it as a deleted process and kill it.
@@ -225,10 +241,13 @@ DEFUN ("call-process", Fcall_process, Scall_process, 1, MANY, 0,
 The remaining arguments are optional.
 
 The program's input comes from file INFILE (nil means `null-device').
-If you want to make the input come from an Emacs buffer, use
-`call-process-region' instead.
+If INFILE is a relative path, it will be looked for relative to the
+directory where the process is run (see below).  If you want to make the
+input come from an Emacs buffer, use `call-process-region' instead.
 
 Third argument DESTINATION specifies how to handle program's output.
+(\"Output\" here means both standard output and standard error
+output.)
 If DESTINATION is a buffer, or t that stands for the current buffer,
  it means insert output in that buffer before point.
 If DESTINATION is nil, it means discard output; 0 means discard
@@ -270,7 +289,9 @@ usage: (call-process PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)  *
 
   if (nargs >= 2 && ! NILP (args[1]))
     {
-      infile = Fexpand_file_name (args[1], BVAR (current_buffer, directory));
+      /* Expand infile relative to the current buffer's current
+	 directory, or its unhandled equivalent ("~").  */
+      infile = Fexpand_file_name (args[1], get_current_directory (false));
       CHECK_STRING (infile);
     }
   else
@@ -439,7 +460,7 @@ call_process (ptrdiff_t nargs, Lisp_Object *args, int filefd,
      buffer's current directory, or its unhandled equivalent.  We
      can't just have the child check for an error when it does the
      chdir, since it's in a vfork.  */
-  current_dir = encode_current_directory ();
+  current_dir = get_current_directory (true);
 
   if (STRINGP (error_file))
     {
@@ -1240,6 +1261,130 @@ child_setup (int in, int out, int err, char **new_argv, char **env,
 #endif  /* not WINDOWSNT */
 }
 
+#if USABLE_POSIX_SPAWN
+
+/* Set up ACTIONS and ATTRIBUTES for `posix_spawn'.  Return an error
+   number.  */
+
+static int
+emacs_posix_spawn_init_actions (posix_spawn_file_actions_t *actions,
+                                int std_in, int std_out, int std_err,
+                                const char *cwd)
+{
+  int error = posix_spawn_file_actions_init (actions);
+  if (error != 0)
+    return error;
+
+  error = posix_spawn_file_actions_adddup2 (actions, std_in,
+                                            STDIN_FILENO);
+  if (error != 0)
+    goto out;
+
+  error = posix_spawn_file_actions_adddup2 (actions, std_out,
+                                            STDOUT_FILENO);
+  if (error != 0)
+    goto out;
+
+  error = posix_spawn_file_actions_adddup2 (actions,
+                                            std_err < 0 ? std_out
+                                                        : std_err,
+                                            STDERR_FILENO);
+  if (error != 0)
+    goto out;
+
+  error =
+#ifdef HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR
+    posix_spawn_file_actions_addchdir
+#else
+    posix_spawn_file_actions_addchdir_np
+#endif
+    (actions, cwd);
+  if (error != 0)
+    goto out;
+
+ out:
+  if (error != 0)
+    posix_spawn_file_actions_destroy (actions);
+  return error;
+}
+
+static int
+emacs_posix_spawn_init_attributes (posix_spawnattr_t *attributes)
+{
+  int error = posix_spawnattr_init (attributes);
+  if (error != 0)
+    return error;
+
+  error = posix_spawnattr_setflags (attributes,
+                                    POSIX_SPAWN_SETSID
+                                      | POSIX_SPAWN_SETSIGDEF
+                                      | POSIX_SPAWN_SETSIGMASK);
+  if (error != 0)
+    goto out;
+
+  sigset_t sigdefault;
+  sigemptyset (&sigdefault);
+
+#ifdef DARWIN_OS
+  /* Work around a macOS bug, where SIGCHLD is apparently
+     delivered to a vforked child instead of to its parent.  See:
+     https://lists.gnu.org/r/emacs-devel/2017-05/msg00342.html
+  */
+  sigaddset (&sigdefault, SIGCHLD);
+#endif
+
+  sigaddset (&sigdefault, SIGINT);
+  sigaddset (&sigdefault, SIGQUIT);
+#ifdef SIGPROF
+  sigaddset (&sigdefault, SIGPROF);
+#endif
+
+  /* Emacs ignores SIGPIPE, but the child should not.  */
+  sigaddset (&sigdefault, SIGPIPE);
+  /* Likewise for SIGPROF.  */
+#ifdef SIGPROF
+  sigaddset (&sigdefault, SIGPROF);
+#endif
+
+  error = posix_spawnattr_setsigdefault (attributes, &sigdefault);
+  if (error != 0)
+    goto out;
+
+  /* Stop blocking SIGCHLD in the child.  */
+  sigset_t oldset;
+  error = pthread_sigmask (SIG_SETMASK, NULL, &oldset);
+  if (error != 0)
+    goto out;
+  error = posix_spawnattr_setsigmask (attributes, &oldset);
+  if (error != 0)
+    goto out;
+
+ out:
+  if (error != 0)
+    posix_spawnattr_destroy (attributes);
+
+  return error;
+}
+
+static int
+emacs_posix_spawn_init (posix_spawn_file_actions_t *actions,
+                        posix_spawnattr_t *attributes, int std_in,
+                        int std_out, int std_err, const char *cwd)
+{
+  int error = emacs_posix_spawn_init_actions (actions, std_in,
+                                              std_out, std_err, cwd);
+  if (error != 0)
+    return error;
+
+  error = emacs_posix_spawn_init_attributes (attributes);
+  if (error != 0)
+    return error;
+
+  return 0;
+}
+
+#endif
+
 /* Start a new asynchronous subprocess.  If successful, return zero
    and store the process identifier of the new process in *NEWPID.
    Use STDIN, STDOUT, and STDERR as standard streams for the new
@@ -1259,9 +1404,57 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
              char **argv, char **envp, const char *cwd,
              const char *pty, const sigset_t *oldset)
 {
+#if USABLE_POSIX_SPAWN
+  /* Prefer the simpler `posix_spawn' if available.  `posix_spawn'
+     doesn't yet support setting up pseudoterminals, so we fall back
+     to `vfork' if we're supposed to use a pseudoterminal.  */
+
+  bool use_posix_spawn = pty == NULL;
+
+  posix_spawn_file_actions_t actions;
+  posix_spawnattr_t attributes;
+
+  if (use_posix_spawn)
+    {
+      /* Initialize optional attributes before blocking. */
+      int error
+        = emacs_posix_spawn_init (&actions, &attributes, std_in,
+                                  std_out, std_err, cwd);
+      if (error != 0)
+	return error;
+    }
+#endif
+
   int pid;
+  int vfork_error;
 
   eassert (input_blocked_p ());
+
+#if USABLE_POSIX_SPAWN
+  if (use_posix_spawn)
+    {
+      vfork_error = posix_spawn (&pid, argv[0], &actions, &attributes,
+                                 argv, envp);
+      if (vfork_error != 0)
+	pid = -1;
+
+      int error = posix_spawn_file_actions_destroy (&actions);
+      if (error != 0)
+	{
+	  errno = error;
+	  emacs_perror ("posix_spawn_file_actions_destroy");
+	}
+
+      error = posix_spawnattr_destroy (&attributes);
+      if (error != 0)
+	{
+	  errno = error;
+	  emacs_perror ("posix_spawnattr_destroy");
+	}
+
+      goto fork_done;
+    }
+#endif
 
 #ifndef WINDOWSNT
   /* vfork, and prevent local vars from being clobbered by the vfork.  */
@@ -1406,8 +1599,11 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
 
   /* Back in the parent process.  */
 
-  int vfork_error = pid < 0 ? errno : 0;
+  vfork_error = pid < 0 ? errno : 0;
 
+#if USABLE_POSIX_SPAWN
+ fork_done:
+#endif
   if (pid < 0)
     {
       eassert (0 < vfork_error);
@@ -1661,32 +1857,15 @@ make_environment_block (Lisp_Object current_dir)
 void
 init_callproc_1 (void)
 {
-#ifdef HAVE_NS
-  const char *etc_dir = ns_etc_directory ();
-  const char *path_exec = ns_exec_path ();
-#endif
-
-  Vdata_directory = decode_env_path ("EMACSDATA",
-#ifdef HAVE_NS
-                                             etc_dir ? etc_dir :
-#endif
-                                             PATH_DATA, 0);
+  Vdata_directory = decode_env_path ("EMACSDATA", PATH_DATA, 0);
   Vdata_directory = Ffile_name_as_directory (Fcar (Vdata_directory));
 
-  Vdoc_directory = decode_env_path ("EMACSDOC",
-#ifdef HAVE_NS
-                                             etc_dir ? etc_dir :
-#endif
-                                             PATH_DOC, 0);
+  Vdoc_directory = decode_env_path ("EMACSDOC", PATH_DOC, 0);
   Vdoc_directory = Ffile_name_as_directory (Fcar (Vdoc_directory));
 
   /* Check the EMACSPATH environment variable, defaulting to the
      PATH_EXEC path from epaths.h.  */
-  Vexec_path = decode_env_path ("EMACSPATH",
-#ifdef HAVE_NS
-                                path_exec ? path_exec :
-#endif
-                                PATH_EXEC, 0);
+  Vexec_path = decode_env_path ("EMACSPATH", PATH_EXEC, 0);
   Vexec_directory = Ffile_name_as_directory (Fcar (Vexec_path));
   /* FIXME?  For ns, path_exec should go at the front?  */
   Vexec_path = nconc2 (decode_env_path ("PATH", "", 0), Vexec_path);
@@ -1701,10 +1880,6 @@ init_callproc (void)
 
   char *sh;
   Lisp_Object tempdir;
-#ifdef HAVE_NS
-  if (data_dir == 0)
-    data_dir = ns_etc_directory () != 0;
-#endif
 
   if (!NILP (Vinstallation_directory))
     {
@@ -1716,15 +1891,8 @@ init_callproc (void)
 	  /* MSDOS uses wrapped binaries, so don't do this.  */
       if (NILP (Fmember (tem, Vexec_path)))
 	{
-#ifdef HAVE_NS
-	  const char *path_exec = ns_exec_path ();
-#endif
 	  /* Running uninstalled, so default to tem rather than PATH_EXEC.  */
-	  Vexec_path = decode_env_path ("EMACSPATH",
-#ifdef HAVE_NS
-					path_exec ? path_exec :
-#endif
-					SSDATA (tem), 0);
+	  Vexec_path = decode_env_path ("EMACSPATH", SSDATA (tem), 0);
 	  Vexec_path = nconc2 (decode_env_path ("PATH", "", 0), Vexec_path);
 	}
 

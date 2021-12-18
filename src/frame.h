@@ -158,8 +158,8 @@ struct frame
      There are four additional elements of nil at the end, to terminate.  */
   Lisp_Object menu_bar_items;
 
-  /* Alist of elements (FACE-NAME . FACE-VECTOR-DATA).  */
-  Lisp_Object face_alist;
+  /* Hash table of FACE-NAME keys and FACE-VECTOR-DATA values.  */
+  Lisp_Object face_hash_table;
 
   /* A vector that records the entire structure of this frame's menu bar.
      For the format of the data, see extensive comments in xmenu.c.
@@ -449,8 +449,8 @@ struct frame
   /* Non-zero if this frame's faces need to be recomputed.  */
   bool_bf face_change : 1;
 
-  /* Non-zero if this frame's image cache cannot be freed because the
-     frame is in the process of being redisplayed.  */
+  /* Non-zero if this frame's image cache and face cache cannot be
+     freed because the frame is in the process of being redisplayed.  */
   bool_bf inhibit_clear_image_cache : 1;
 
   /* True when new_width or new_height were set by change_frame_size,
@@ -585,6 +585,7 @@ struct frame
     struct x_output *x;         /* From xterm.h.  */
     struct w32_output *w32;     /* From w32term.h.  */
     struct ns_output *ns;       /* From nsterm.h.  */
+    struct haiku_output *haiku; /* From haikuterm.h. */
   }
   output_data;
 
@@ -672,9 +673,9 @@ fset_condemned_scroll_bars (struct frame *f, Lisp_Object val)
   f->condemned_scroll_bars = val;
 }
 INLINE void
-fset_face_alist (struct frame *f, Lisp_Object val)
+fset_face_hash_table (struct frame *f, Lisp_Object val)
 {
-  f->face_alist = val;
+  f->face_hash_table = val;
 }
 #if defined (HAVE_WINDOW_SYSTEM)
 INLINE void
@@ -852,6 +853,11 @@ default_pixels_per_inch_y (void)
 #else
 #define FRAME_NS_P(f) ((f)->output_method == output_ns)
 #endif
+#ifndef HAVE_HAIKU
+#define FRAME_HAIKU_P(f) false
+#else
+#define FRAME_HAIKU_P(f) ((f)->output_method == output_haiku)
+#endif
 
 /* FRAME_WINDOW_P tests whether the frame is a graphical window system
    frame.  */
@@ -863,6 +869,9 @@ default_pixels_per_inch_y (void)
 #endif
 #ifdef HAVE_NS
 #define FRAME_WINDOW_P(f) FRAME_NS_P(f)
+#endif
+#ifdef HAVE_HAIKU
+#define FRAME_WINDOW_P(f) FRAME_HAIKU_P (f)
 #endif
 #ifndef FRAME_WINDOW_P
 #define FRAME_WINDOW_P(f) ((void) (f), false)

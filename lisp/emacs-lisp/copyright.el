@@ -120,7 +120,7 @@ When this is `function', only ask when called non-interactively."
     (re-search-forward regexp bound noerror count)))
 
 (defun copyright-start-point ()
-  "Return point-min or point-max, depending on `copyright-at-end-flag'."
+  "Return `point-min' or `point-max', depending on `copyright-at-end-flag'."
   (if copyright-at-end-flag
       (point-max)
     (point-min)))
@@ -135,7 +135,7 @@ When this is `function', only ask when called non-interactively."
 (defun copyright-find-copyright ()
   "Return non-nil if a copyright header suitable for updating is found.
 The header must match `copyright-regexp' and `copyright-names-regexp', if set.
-This function sets the match-data that `copyright-update-year' uses."
+This function sets the match data that `copyright-update-year' uses."
   (widen)
   (goto-char (copyright-start-point))
   ;; In case the regexp is rejected.  This is useful because
@@ -144,11 +144,16 @@ This function sets the match-data that `copyright-update-year' uses."
   (with-demoted-errors "Can't update copyright: %s"
     ;; (1) Need the extra \\( \\) around copyright-regexp because we
     ;; goto (match-end 1) below. See note (2) below.
-    (copyright-re-search (concat "\\(" copyright-regexp
-				 "\\)\\([ \t]*\n\\)?.*\\(?:"
-				 copyright-names-regexp "\\)")
-			 (copyright-limit)
-			 t)))
+    (let ((regexp (concat "\\(" copyright-regexp
+			  "\\)\\([ \t]*\n\\)?.*\\(?:"
+			  copyright-names-regexp "\\)")))
+      (when (copyright-re-search regexp (copyright-limit) t)
+        ;; We may accidentally have landed in the middle of a
+        ;; copyright line, so re-perform the search without the
+        ;; search.  (Otherwise we may be inserting the new year in the
+        ;; middle of the list of years.)
+        (goto-char (match-beginning 0))
+        (copyright-re-search regexp nil t)))))
 
 (defun copyright-find-end ()
   "Possibly adjust the search performed by `copyright-find-copyright'.

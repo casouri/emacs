@@ -72,7 +72,7 @@ SYMBOL should be one of `grep-command', `grep-template',
 Some grep programs are able to surround matches with special
 markers in grep output.  Such markers can be used to highlight
 matches in grep mode.  This requires `font-lock-mode' to be active
-in grep buffers, so if you have globally disabled font-lock-mode,
+in grep buffers, so if you have globally disabled `font-lock-mode',
 you will not get highlighting.
 
 This option sets the environment variable GREP_COLORS to specify
@@ -137,7 +137,7 @@ The following place holders should be present in the string:
  <F> - file names and wildcards to search.
  <X> - file names and wildcards to exclude.
  <R> - the regular expression searched for.
- <N> - place to insert null-device.
+ <N> - place to insert `null-device'.
 
 In interactive usage, the actual value of this variable is set up
 by `grep-compute-defaults'; to change the default value, use
@@ -203,7 +203,7 @@ by `grep-compute-defaults'; to change the default value, use
   :version "22.1")
 
 (defcustom grep-files-aliases
-  '(("all" .   "* .[!.]* ..?*") ;; Don't match `..'. See bug#22577
+  '(("all" .   "* .*")
     ("el" .    "*.el")
     ("ch" .    "*.[ch]")
     ("c" .     "*.c")
@@ -389,7 +389,7 @@ Notice that using \\[next-error] or \\[compile-goto-error] modifies
                    (and mbeg (next-single-property-change
                               mbeg 'font-lock-face nil end))))
              (when mend
-               (- mend beg))))))
+               (- mend beg 1))))))
      nil nil
      (3 '(face nil display ":")))
     ("^Binary file \\(.+\\) matches" 1 nil nil 0 1))
@@ -523,7 +523,7 @@ This variable's value takes effect when `grep-compute-defaults' is called."
 ;;;###autoload
 (defvar grep-history nil "History list for grep.")
 ;;;###autoload
-(defvar grep-find-history nil "History list for grep-find.")
+(defvar grep-find-history nil "History list for `grep-find'.")
 
 ;; History of lgrep and rgrep regexp and files args.
 (defvar grep-regexp-history nil)
@@ -696,11 +696,12 @@ The value depends on `grep-command', `grep-template',
     (when (eq grep-highlight-matches 'auto-detect)
       (setq grep-highlight-matches
 	    (with-temp-buffer
-	      (and (grep-probe grep-program '(nil t nil "--help"))
-		   (progn
-		     (goto-char (point-min))
-		     (search-forward "--color" nil t))
-		   ;; Windows and DOS pipes fail `isatty' detection in Grep.
+              ;; The "grep --help" exit status varies; pay no attention to it.
+              (grep-probe grep-program '(nil t nil "--help"))
+	      (goto-char (point-min))
+	      (and (let ((case-fold-search nil))
+                     (re-search-forward (rx "--color" (not (in "a-z"))) nil t))
+	           ;; Windows and DOS pipes fail `isatty' detection in Grep.
 		   (if (memq system-type '(windows-nt ms-dos))
 		       'always 'auto)))))
 
@@ -1056,11 +1057,9 @@ REGEXP is used as a string in the prompt."
 	       default-extension
 	       (car grep-files-history)
 	       (car (car grep-files-aliases))))
-	 (files (completing-read
-		 (concat "Search for \"" regexp
-			 "\" in files matching wildcard"
-			 (if default (concat " (default " default ")"))
-			 ": ")
+         (files (completing-read
+                 (format-prompt "Search for \"%s\" in files matching wildcard"
+                                default regexp)
 		 #'read-file-name-internal
 		 nil nil nil 'grep-files-history
 		 (delete-dups
@@ -1344,6 +1343,13 @@ command before it's run."
         ;; since `zgrep' puts filters in the grep output.
         (grep-highlight-matches 'always))
     (rgrep regexp files dir confirm)))
+
+(defun grep-file-at-point (point)
+  "Return the name of the file at POINT a `grep-mode' buffer.
+The returned file name is relative."
+  (when-let ((msg (get-text-property point 'compilation-message))
+             (loc (compilation--message->loc msg)))
+    (caar (compilation--loc->file-struct loc))))
 
 ;;;###autoload
 (defalias 'rzgrep 'zrgrep)

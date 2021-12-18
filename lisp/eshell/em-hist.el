@@ -293,7 +293,7 @@ Returns nil if INPUT is prepended by blank space, otherwise non-nil."
 
   (add-hook 'eshell-exit-hook #'eshell-write-history nil t)
 
-  (add-hook 'kill-emacs-hook #'eshell-save-some-history)
+  (add-hook 'kill-emacs-query-functions #'eshell-save-some-history)
 
   (add-hook 'eshell-input-filter-functions #'eshell-add-to-history nil t))
 
@@ -310,7 +310,8 @@ Returns nil if INPUT is prepended by blank space, otherwise non-nil."
 			(format-message
 			 "Save input history for Eshell buffer `%s'? "
 			 (buffer-name buf)))))
-	      (eshell-write-history))))))
+	      (eshell-write-history)))))
+  t)
 
 (defun eshell/history (&rest args)
   "List in help buffer the buffer's input history."
@@ -401,7 +402,7 @@ variable `eshell-input-filter' returns non-nil when called on the
 command.
 
 This function is supposed to be called from the minibuffer, presumably
-as a minibuffer-exit-hook."
+as a `minibuffer-exit-hook'."
   (eshell-add-input-to-history
    (buffer-substring (minibuffer-prompt-end) (point-max))))
 

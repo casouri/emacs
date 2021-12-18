@@ -24,7 +24,7 @@
 
 ;;; Commentary:
 
-;; Heavily borrowed from gnus-art.el. Thanks to the original authors.
+;; Heavily borrowed from gnus-art.el.  Thanks to the original authors.
 ;; This buttonizes nicks and other stuff to make it all clickable.
 ;; To enable, add to your init file:
 ;; (require 'erc-button)
@@ -130,7 +130,8 @@ longer than `erc-fill-column'."
     ("<URL: *\\([^<> ]+\\) *>" 0 t browse-url-button-open-url 1)
 ;;; ("(\\(\\([^~\n \t@][^\n \t@]*\\)@\\([a-zA-Z0-9.:-]+\\)\\)" 1 t finger 2 3)
     ;; emacs internal
-    ("[`]\\([a-zA-Z][-a-zA-Z_0-9]+\\)[']" 1 t erc-button-describe-symbol 1)
+    ("[`‘]\\([a-zA-Z][-a-zA-Z_0-9!*<=>+]+\\)['’]"
+     1 t erc-button-describe-symbol 1)
     ;; pseudo links
     ("\\bInfo:[\"]\\([^\"]+\\)[\"]" 0 t Info-goto-node 1)
     ("\\b\\(Ward\\|Wiki\\|WardsWiki\\|TheWiki\\):\\([A-Z][a-z]+\\([A-Z][a-z]+\\)+\\)"
@@ -164,7 +165,7 @@ REGEXP is the string matching text around the button or a symbol
 BUTTON is the number of the regexp grouping actually matching the
   button.  This is ignored if REGEXP is \\='nicknames.
 
-FORM is a lisp expression which must eval to true for the button to
+FORM is a Lisp expression which must eval to true for the button to
   be added.
 
 CALLBACK is the function to call when the user push this button.
@@ -193,9 +194,10 @@ PAR is a number of a regexp grouping whose text will be passed to
                         :inline t
                         (integer :tag "Regexp section number")))))
 
-(defcustom erc-emacswiki-url "https://www.emacswiki.org/cgi-bin/wiki.pl?"
-  "URL of the EmacsWiki Homepage."
-  :type 'string)
+(defcustom erc-emacswiki-url "https://www.emacswiki.org/emacs/"
+  "URL of the EmacsWiki website."
+  :type 'string
+  :version "28.1")
 
 (defcustom erc-emacswiki-lisp-url "https://www.emacswiki.org/elisp/"
   "URL of the EmacsWiki ELisp area."
@@ -299,7 +301,7 @@ specified by `erc-button-alist'."
           (end (match-end (nth 1 entry)))
           (form (nth 2 entry))
           (fun (nth 3 entry))
-          (data (mapcar #'match-string (nthcdr 4 entry))))
+          (data (mapcar #'match-string-no-properties (nthcdr 4 entry))))
       (when (or (eq t form)
                 (eval form t))
         (erc-button-add-button start end fun nil data regexp)))))
@@ -387,12 +389,11 @@ REGEXP is the regular expression which matched for this button."
     (mouse-set-point event)
     (erc-button-press-button)))
 
-;; XEmacs calls this via widget-button-press with a bunch of arguments
-;; which we don't care about.
 (defun erc-button-press-button (&rest _ignore)
   "Check text at point for a callback function.
 If the text at point has a `erc-callback' property,
 call it with the value of the `erc-data' text property."
+  (declare (advertised-calling-convention () "28.1"))
   (interactive)
   (let* ((data (get-text-property (point) 'erc-data))
          (fun (get-text-property (point) 'erc-callback)))

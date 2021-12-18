@@ -26,7 +26,7 @@
 
 (defmacro with-time-stamp-test-env (&rest body)
   "Evaluate BODY with some standard time-stamp test variables bound."
-  (declare (indent defun))
+  (declare (indent 0) (debug t))
   `(let ((user-login-name "test-logname")
          (user-full-name "100%d Tester") ;verify "%" passed unchanged
          (buffer-file-name "/emacs/test/time-stamped-file")
@@ -46,7 +46,7 @@
 
 (defmacro with-time-stamp-test-time (reference-time &rest body)
   "Force any contained time-stamp call to use time REFERENCE-TIME."
-  (declare (indent defun))
+  (declare (indent 1) (debug t))
   `(cl-letf*
          ((orig-time-stamp-string-fn (symbol-function 'time-stamp-string))
          ((symbol-function 'time-stamp-string)
@@ -56,13 +56,14 @@
 
 (defmacro with-time-stamp-system-name (name &rest body)
   "Force (system-name) to return NAME while evaluating BODY."
-  (declare (indent defun))
+  (declare (indent 1) (debug t))
   `(cl-letf (((symbol-function 'system-name)
               (lambda () ,name)))
      ,@body))
 
 (defmacro time-stamp-should-warn (form)
   "Similar to `should' but verifies that a format warning is generated."
+  (declare (debug t))
   `(let ((warning-count 0))
      (cl-letf (((symbol-function 'time-stamp-conv-warn)
                 (lambda (_old _new)
@@ -86,7 +87,7 @@
       (should (equal (time-stamp-string "%H %Z" ref-time1) "15 GMT")))))
 
 (iter-defun time-stamp-test-pattern-sequential ()
-  "Iterate through each possibility for a part of time-stamp-pattern."
+  "Iterate through each possibility for a part of `time-stamp-pattern'."
   (let ((pattern-value-parts
          '(("4/" "10/" "-4/" "0/" "")                     ;0: line limit
            ("stamp<" "")                                  ;1: start
@@ -115,7 +116,7 @@
                                     (extract-part 5))))))))))
 
 (iter-defun time-stamp-test-pattern-multiply ()
-  "Iterate through every combination of parts of time-stamp-pattern."
+  "Iterate through every combination of parts of `time-stamp-pattern'."
   (let ((line-limit-values '("" "4/"))
         (start-values '("" "stamp<"))
         (format-values '("%%" "%m"))
@@ -141,9 +142,9 @@
                            ts-format _format-lines _end-lines)
               ;; Verify that time-stamp parsed time-stamp-pattern and
               ;; called us with the correct pieces.
-              (let ((limit-number (string-to-number line-limit1)))
-                (if (equal line-limit1 "")
-                    (setq limit-number time-stamp-line-limit))
+              (let ((limit-number (if (equal line-limit1 "")
+                                      time-stamp-line-limit
+                                    (string-to-number line-limit1))))
                 (goto-char (point-min))
                 (if (> limit-number 0)
                     (should (= search-limit (line-beginning-position
@@ -594,8 +595,12 @@
      ;; incorrectly nested parens do not crash us
      (should-not (equal (time-stamp-string "%(stuffB" ref-time3) May))
      (should-not (equal (time-stamp-string "%)B" ref-time3) May))
+     ;; unterminated format does not crash us
+     (should-not (equal (time-stamp-string "%" ref-time3) May))
      ;; not all punctuation is allowed
-     (should-not (equal (time-stamp-string "%&B" ref-time3) May)))))
+     (should-not (equal (time-stamp-string "%&B" ref-time3) May))
+     (should-not (equal (time-stamp-string "%/B" ref-time3) May))
+     (should-not (equal (time-stamp-string "%;B" ref-time3) May)))))
 
 (ert-deftest time-stamp-format-non-conversions ()
   "Test that without a %, the text is copied literally."
@@ -634,8 +639,8 @@
                      (concat Mon "." Monday "." Mon)))
       (should (equal (time-stamp-string "%5z.%5::z.%5z" ref-time1)
                      "+0000.+00:00:00.+0000"))
-      ;; format letter is independent
-      (should (equal (time-stamp-string "%H:%M" ref-time1) "15:04")))))
+      ;; format character is independent
+      (should (equal (time-stamp-string "%H:%M%%%S" ref-time1) "15:04%05")))))
 
 (ert-deftest time-stamp-format-string-width ()
   "Test time-stamp string width modifiers."
@@ -703,9 +708,10 @@
 ;;;; Setup for tests of time offset formatting with %z
 
 (defun formatz (format zone)
-  "Uses time FORMAT string to format the offset of ZONE, returning the result.
-FORMAT is \"%z\" or a variation.
-ZONE is as the ZONE argument of the `format-time-string' function."
+  "Uses FORMAT to format the offset of ZONE, returning the result.
+FORMAT must be time format \"%z\" or some variation thereof.
+ZONE is as the ZONE argument of the `format-time-string' function.
+This function is called by 99% of the `time-stamp' \"%z\" unit tests."
   (with-time-stamp-test-env
    (let ((time-stamp-time-zone zone))
      ;; Call your favorite time formatter here.
@@ -717,9 +723,9 @@ ZONE is as the ZONE argument of the `format-time-string' function."
 
 (defun format-time-offset (format offset-secs)
   "Uses FORMAT to format the time zone represented by OFFSET-SECS.
-FORMAT must be \"%z\", possibly with a flag and padding.
+FORMAT must be time format \"%z\" or some variation thereof.
 This function is a wrapper around `time-stamp-formatz-from-parsed-options'
-and is used for testing."
+and is called by some low-level `time-stamp' \"%z\" unit tests."
   ;; This wrapper adds a simple regexp-based parser that handles only
   ;; %z and variants.  In normal use, time-stamp-formatz-from-parsed-options
   ;; is called from a parser that handles all time string formats.
@@ -761,6 +767,7 @@ and is used for testing."
   "Formats ZONE and compares it to EXPECT.
 Uses the free variables `form-string' and `pattern-mod'.
 The functions in `pattern-mod' are composed left to right."
+  (declare (debug t))
   `(let ((result ,expect))
      (dolist (fn pattern-mod)
        (setq result (funcall fn result)))
@@ -849,7 +856,7 @@ The functions in `pattern-mod' are composed left to right."
 
 (defun formatz-mod-del-colons (string)
   "Returns STRING with any colons removed."
-  (replace-regexp-in-string ":" "" string))
+  (string-replace ":" "" string))
 
 (defun formatz-mod-add-00 (string)
   "Returns STRING with \"00\" appended."
@@ -871,7 +878,7 @@ The functions in `pattern-mod' are composed left to right."
 
 (defmacro formatz-generate-tests
     (form-strings hour-mod mins-mod secs-mod big-mod secbig-mod)
-  "Defines ert-deftest tests for time formats FORM-STRINGS.
+  "Defines tests for time formats FORM-STRINGS.
 FORM-STRINGS is a list of formats, each \"%z\" or some variation thereof.
 
 Each of the remaining arguments is an unquoted list of the form
@@ -895,26 +902,33 @@ BIG-MOD is the result for offset +100 hours and modifiers for the other
 expected results for hours greater than 99 with a whole number of minutes.
 SECBIG-MOD is the result for offset +100 hours 30 seconds and modifiers for
 the other expected results for hours greater than 99 with non-zero seconds."
-  (declare (indent 1))
+  (declare (indent 1) (debug (&rest sexp)))
   ;; Generate a form to create a list of tests to define.  When this
   ;; macro is called, the form is evaluated, thus defining the tests.
-  (let ((ert-test-list '(list)))
+  ;; We will modify this list, so start with a list consed at runtime.
+  (let ((ert-test-list (list 'list)))
     (dolist (form-string form-strings ert-test-list)
       (nconc
        ert-test-list
        (list
         `(ert-deftest ,(intern (concat "formatz-" form-string "-hhmm")) ()
+           ,(concat "Tests time-stamp format " form-string
+                   " with whole hours or minutes.")
            (should (equal (formatz ,form-string (fz-make+zone 0))
                           ,(car hour-mod)))
            (formatz-hours-exact-helper ,form-string ',(cdr hour-mod))
            (should (equal (formatz ,form-string (fz-make+zone 0 30))
                           ,(car mins-mod)))
            (formatz-nonzero-minutes-helper ,form-string ',(cdr mins-mod)))
-        `(ert-deftest ,(intern (concat "formatz-" form-string "-secs")) ()
+        `(ert-deftest ,(intern (concat "formatz-" form-string "-seconds")) ()
+           ,(concat "Tests time-stamp format " form-string
+                   " with offsets that have non-zero seconds.")
            (should (equal (formatz ,form-string (fz-make+zone 0 0 30))
                           ,(car secs-mod)))
            (formatz-nonzero-seconds-helper ,form-string ',(cdr secs-mod)))
-        `(ert-deftest ,(intern (concat "formatz-" form-string "-big")) ()
+        `(ert-deftest ,(intern (concat "formatz-" form-string "-threedigit")) ()
+           ,(concat "Tests time-stamp format " form-string
+                   " with offsets that are 100 hours or greater.")
            (should (equal (formatz ,form-string (fz-make+zone 100))
                           ,(car big-mod)))
            (formatz-hours-big-helper ,form-string ',(cdr big-mod))
@@ -954,6 +968,7 @@ the other expected results for hours greater than 99 with non-zero seconds."
 ;; The legacy exception for %z in time-stamp will need to remain
 ;; through at least 2024 and Emacs 28.
 (ert-deftest formatz-%z-spotcheck ()
+  "Spot-checks internal implementation of time-stamp format %z."
   (should (equal (format-time-offset "%z" (fz-make+zone 0)) "+0000"))
   (should (equal (format-time-offset "%z" (fz-make+zone 0 30)) "+0030"))
   (should (equal (format-time-offset "%z" (fz-make+zone 0 0 30)) "+000030"))

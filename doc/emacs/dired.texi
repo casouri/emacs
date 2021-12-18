@@ -457,6 +457,15 @@ Visit the parent directory of the current directory
 for @file{..} and typing @kbd{f} there.
 @end table
 
+@defopt dired-kill-when-opening-new-dired-buffer
+  When visiting a new sub-directory in Dired, Emacs will (by default)
+open a new buffer to display this new directory, and leave the old
+Dired buffer as is.  If this user option is non-@code{nil}, the old
+Dired buffer will be killed after selecting the new directory.  This
+means that if you're traversing a directory structure in Dired, you
+won't end up with more than a single Dired buffer.
+@end defopt
+
 @node Marks vs Flags
 @section Dired Marks vs.@: Flags
 
@@ -733,6 +742,15 @@ never creates such missing directories;  the value @code{always},
 means Dired automatically creates them; the value @code{ask}
 means Dired asks you for confirmation before creating them.
 
+@vindex dired-create-destination-dirs-on-trailing-dirsep
+If the option @code{dired-create-destination-dirs-on-trailing-dirsep}
+is non-@code{nil} in addition to @code{dired-create-destination-dirs},
+a trailing directory separator at the destination directory is treated
+specially.  In that case, when copying to @samp{test/} and no
+directory @samp{test} exists already, it will be created and the
+specified source files or directories are copied into the newly
+created directory.
+
 @vindex dired-copy-preserve-time
 If @code{dired-copy-preserve-time} is non-@code{nil}, then copying
 with this command preserves the modification time of the old file in
@@ -775,6 +793,14 @@ which to move the files (this is like the shell command @command{mv}).
 The option @code{dired-create-destination-dirs} controls whether Dired
 should create non-existent directories in @var{new}.
 
+The option @code{dired-create-destination-dirs-on-trailing-dirsep},
+when set in addition to @code{dired-create-destination-dirs}, controls
+wether a trailing directory separator at the destination is treated
+specially.  In that case, when renaming a directory @samp{old} to
+@samp{new/} and no directory @samp{new} exists already, it will be
+created and @samp{old} is moved into the newly created directory.
+Otherwise, @samp{old} is renamed to @samp{new}.
+
 Dired automatically changes the visited file name of buffers associated
 with renamed files so that they refer to the new names.
 
@@ -814,7 +840,9 @@ link.
 Change the mode (also called @dfn{permission bits}) of the specified
 files (@code{dired-do-chmod}).  @var{modespec} can be in octal or
 symbolic notation, like arguments handled by the @command{chmod}
-program.
+program.  This command does not follow symbolic links, so it reports
+an error if you try to change the mode of a symbolic link on a
+platform where such modes are immutable.
 
 @findex dired-do-chgrp
 @kindex G @r{(Dired)}
@@ -841,8 +869,8 @@ different systems put @command{chown} in different places).
 @cindex changing file time (in Dired)
 @item T @var{timestamp} @key{RET}
 Touch the specified files (@code{dired-do-touch}).  This means
-updating their modification times to the present time.  This is like
-the shell command @code{touch}.
+updating their modification times to @var{timestamp}, which defaults
+to the present time.  This is like the shell command @command{touch}.
 
 @findex dired-do-print
 @kindex P @r{(Dired)}
@@ -1496,16 +1524,14 @@ buffer containing image-dired, corresponding to the marked files.
   You can also enter Image-Dired directly by typing @kbd{M-x
 image-dired}.  This prompts for a directory; specify one that has
 image files.  This creates thumbnails for all the images in that
-directory, and displays them all in the thumbnail buffer.  This
-takes a long time if the directory contains many image files, and it
-asks for confirmation if the number of image files exceeds
-@code{image-dired-show-all-from-dir-max-files}.
+directory, and displays them all in the thumbnail buffer.  The
+thumbnails are generated in the background and are loaded as they
+become available.
 
   With point in the thumbnail buffer, you can type @key{RET}
-(@code{image-dired-display-thumbnail-original-image}) to display a
-sized version of it in another window.  This sizes the image to fit
-the window.  Use the arrow keys to move around in the buffer.  For
-easy browsing, use @key{SPC}
+(@code{image-dired-display-thumbnail-original-image}) to display the
+image in another window.  Use the arrow keys to move around in the
+thumbnail buffer.  For easy browsing, use @key{SPC}
 (@code{image-dired-display-next-thumbnail-original}) to advance and
 display the next image.  Typing @key{DEL}
 (@code{image-dired-display-previous-thumbnail-original}) backs up to
@@ -1544,6 +1570,11 @@ image.  You comment a file from the thumbnail buffer by typing
 @kbd{c}.  You will be prompted for a comment.  Type @kbd{C-t c} to add
 a comment from Dired (@code{image-dired-dired-comment-files}).
 
+@vindex image-dired-thumb-visible-marks
+  Files that are marked in Dired will also be marked in Image-Dired if
+@code{image-dired-thumb-visible-marks} is non-@code{nil} (which is the
+default).
+
   Image-Dired also provides simple image manipulation.  In the
 thumbnail buffer, type @kbd{L} to rotate the original image 90 degrees
 anti clockwise, and @kbd{R} to rotate it 90 degrees clockwise.  This
@@ -1552,6 +1583,14 @@ rotation is lossless, and uses an external utility called
 
 @node Misc Dired Features
 @section Other Dired Features
+
+@vindex dired-free-space
+  By default, Dired will display the available space on the disk in
+the first line.  This is the @code{first} value of the
+@code{dired-free-space} variable.  If you set this to
+@code{separate} instead, Dired will display this on a separate line
+(including the space the files in the current directory takes).  If
+you set this to @code{nil}, the free space isn't displayed at all.
 
 @kindex + @r{(Dired)}
 @findex dired-create-directory

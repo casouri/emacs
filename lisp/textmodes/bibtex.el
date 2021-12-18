@@ -113,7 +113,7 @@ page-dashes         Change double dashes in page field to single dash
 whitespace          Delete whitespace at the beginning and end of fields.
 inherit-booktitle   If entry contains a crossref field and the booktitle
                       field is empty, set the booktitle field to the content
-                      of the title field of the crossreferenced entry.
+                      of the title field of the cross-referenced entry.
 realign             Realign entries, so that field texts and perhaps equal
                       signs (depending on the value of
                       `bibtex-align-at-equal-sign') begin in the same column.
@@ -839,6 +839,24 @@ for a new entry."
       ("eprint") ("eprintclass" nil nil 4) ("primaryclass" nil nil -4)
       ("eprinttype" nil nil 5) ("archiveprefix" nil nil -5)
       ("url") ("urldate")))
+    ("PhdThesis" "PhD Thesis"
+     (("author")
+      ("title" "Title of the PhD thesis")
+      ("school" "School where the PhD thesis was written")
+      ("year"))
+     nil
+     (("type" "Type of the PhD thesis")
+      ("address" "Address of the school (if not part of field \"school\") or country")
+      ("month") ("note")))
+    ("TechReport" "Technical Report"
+     (("author")
+      ("title" "Title of the technical report (BibTeX converts it to lowercase)")
+      ("institution" "Sponsoring institution of the report")
+      ("year"))
+     nil
+     (("type" "Type of the report (if other than \"technical report\")")
+      ("number" "Number of the technical report")
+      ("address") ("month") ("note")))
     ("Unpublished" "Unpublished"
      (("author") ("title") ("date" nil nil 1) ("year" nil nil -1))
      nil
@@ -1228,9 +1246,9 @@ See `bibtex-generate-autokey' for details."
   :type 'integer)
 
 (defcustom bibtex-autokey-use-crossref t
-  "If non-nil use fields from crossreferenced entry if necessary.
+  "If non-nil use fields from cross-referenced entry if necessary.
 If this variable is non-nil and some field has no entry, but a
-valid crossref entry, the field from the crossreferenced entry is used.
+valid crossref entry, the field from the cross-referenced entry is used.
 See `bibtex-generate-autokey' for details."
   :group 'bibtex-autokey
   :type 'boolean)
@@ -1569,8 +1587,8 @@ Set this variable before loading BibTeX mode."
     km)
   "Keymap used in BibTeX mode.")
 
-(easy-menu-define
-  bibtex-edit-menu bibtex-mode-map "BibTeX-Edit Menu in BibTeX mode"
+(easy-menu-define bibtex-edit-menu bibtex-mode-map
+  "BibTeX-Edit Menu in BibTeX mode."
   '("BibTeX-Edit"
     ("Moving inside an Entry"
      ["End of Field" bibtex-find-text t]
@@ -2975,7 +2993,7 @@ The year part:
     `bibtex-autokey-year-length' digits (useful values are 2 and 4).
  2. If both the year and date fields are absent, but the entry has a
     valid crossref field and `bibtex-autokey-use-crossref' is
-    non-nil, use the date or year field of the crossreferenced entry
+    non-nil, use the date or year field of the cross-referenced entry
     instead.
 
 The title part
@@ -3962,7 +3980,7 @@ Optional arg COMMA is as in `bibtex-enclosing-field'.  It is t for
 interactive calls."
   (interactive (list nil t))
   (unless field (setq field (car (bibtex-find-text-internal nil nil comma))))
-  (if (string-match "@" field)
+  (if (string-search "@" field)
       (cond ((bibtex-string= field "@string")
              (message "String definition"))
             ((bibtex-string= field "@preamble")
@@ -4317,8 +4335,6 @@ for a crossref key, t otherwise."
           (eqb (goto-char pos))
           (t (set-buffer buffer) (goto-char pos)))
     pos))
-;; backward compatibility
-(defalias 'bibtex-find-crossref 'bibtex-search-crossref)
 
 (defun bibtex-dist (pos beg end)
   "Return distance between POS and region delimited by BEG and END."
@@ -4381,8 +4397,6 @@ A prefix arg negates the value of `bibtex-search-entry-globally'."
              (if display (bibtex-reposition-window)))
             (display (message "Key `%s' not found" key)))
       pnt)))
-;; backward compatibility
-(defalias 'bibtex-find-entry 'bibtex-search-entry)
 
 (defun bibtex-prepare-new-entry (index)
   "Prepare a new BibTeX entry with index INDEX.
@@ -5607,6 +5621,9 @@ If APPEND is non-nil, append ENTRIES to those already displayed."
   (set-buffer-modified-p nil)
   (setq buffer-read-only t)
   (goto-char (point-min)))
+
+(define-obsolete-function-alias 'bibtex-find-crossref #'bibtex-search-crossref "29.1")
+(define-obsolete-function-alias 'bibtex-find-entry #'bibtex-search-entry "29.1")
 
 (provide 'bibtex)
 ;;; bibtex.el ends here

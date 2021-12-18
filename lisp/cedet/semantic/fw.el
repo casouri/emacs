@@ -66,8 +66,6 @@
 
 (defalias 'semantic-mode-line-update #'force-mode-line-update)
 
-;; Since Emacs 22 major mode functions should use `run-mode-hooks' to
-;; run major mode hooks.
 (define-obsolete-function-alias 'semantic-run-mode-hooks #'run-mode-hooks "28.1")
 
 ;; Fancy compat usage now handled in cedet-compat
@@ -284,7 +282,7 @@ later installation should be done in MODE hook."
 (defvar semantic-current-input-throw-symbol nil
   "The current throw symbol for `semantic-exit-on-input'.")
 (defvar semantic--on-input-start-marker nil
-  "The marker when starting a semantic-exit-on-input form.")
+  "The marker when starting a `semantic-exit-on-input' form.")
 
 (defmacro semantic-exit-on-input (symbol &rest forms)
   "Using SYMBOL as an argument to `throw', execute FORMS.

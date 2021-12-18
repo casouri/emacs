@@ -39,31 +39,40 @@
 (ert-deftest eval-tests--bugs-24912-and-24913 ()
   "Check that Emacs doesn't accept weird argument lists.
 Bug#24912 and Bug#24913."
-  (dolist (args '((&rest &optional)
-                  (&rest a &optional) (&rest &optional a)
-                  (&optional &optional) (&optional &optional a)
-                  (&optional a &optional b)
-                  (&rest &rest) (&rest &rest a)
-                  (&rest a &rest b)))
-    (should-error (eval `(funcall (lambda ,args)) t) :type 'invalid-function)
-    (should-error (byte-compile-check-lambda-list args))
-    (let ((byte-compile-debug t))
-      (ert-info ((format "bytecomp: args = %S" args))
-       (should-error (eval `(byte-compile (lambda ,args)) t))))))
+  (dolist (lb '(t false))
+    (ert-info ((prin1-to-string lb) :prefix "lexical-binding: ")
+      (let ((lexical-binding lb))
+        (dolist (args '((&rest &optional)
+                        (&rest a &optional) (&rest &optional a)
+                        (&optional &optional) (&optional &optional a)
+                        (&optional a &optional b)
+                        (&rest &rest) (&rest &rest a)
+                        (&rest a &rest b)
+                        (&rest) (&optional &rest)
+                        ))
+          (ert-info ((prin1-to-string args) :prefix "args: ")
+            (should-error
+             (eval `(funcall (lambda ,args)) lb) :type 'invalid-function)
+            (should-error (byte-compile-check-lambda-list args))
+            (let ((byte-compile-debug t))
+              (should-error (eval `(byte-compile (lambda ,args)) lb)))))))))
 
-(ert-deftest eval-tests-accept-empty-optional-rest ()
-  "Check that Emacs accepts empty &optional and &rest arglists.
+(ert-deftest eval-tests-accept-empty-optional ()
+  "Check that Emacs accepts empty &optional arglists.
 Bug#24912."
-  (dolist (args '((&optional) (&rest) (&optional &rest)
-                  (&optional &rest a) (&optional a &rest)))
-    (let ((fun `(lambda ,args 'ok)))
-      (ert-info ("eval")
-        (should (eq (funcall (eval fun t)) 'ok)))
-      (ert-info ("byte comp check")
-        (byte-compile-check-lambda-list args))
-      (ert-info ("bytecomp")
-        (let ((byte-compile-debug t))
-          (should (eq (funcall (byte-compile fun)) 'ok)))))))
+  (dolist (lb '(t false))
+    (ert-info ((prin1-to-string lb) :prefix "lexical-binding: ")
+      (let ((lexical-binding lb))
+        (dolist (args '((&optional) (&optional &rest a)))
+          (ert-info ((prin1-to-string args) :prefix "args: ")
+            (let ((fun `(lambda ,args 'ok)))
+              (ert-info ("eval")
+                (should (eq (funcall (eval fun lb)) 'ok)))
+              (ert-info ("byte comp check")
+                (byte-compile-check-lambda-list args))
+              (ert-info ("bytecomp")
+                (let ((byte-compile-debug t))
+                  (should (eq (funcall (byte-compile fun)) 'ok)))))))))))
 
 
 (dolist (form '(let let*))
@@ -77,23 +86,27 @@ Bug#24912."
 
 (ert-deftest eval-tests--if-dot-string ()
   "Check that Emacs rejects (if . \"string\")."
-  (should-error (eval '(if . "abc")) :type 'wrong-type-argument)
+  (should-error (eval '(if . "abc") nil) :type 'wrong-type-argument)
+  (should-error (eval '(if . "abc") t) :type 'wrong-type-argument)
   (let ((if-tail (list '(setcdr if-tail "abc") t)))
-    (should-error (eval (cons 'if if-tail))))
+    (should-error (eval (cons 'if if-tail) nil) :type 'void-variable)
+    (should-error (eval (cons 'if if-tail) t) :type 'void-variable))
   (let ((if-tail (list '(progn (setcdr if-tail "abc") nil) t)))
-    (should-error (eval (cons 'if if-tail)))))
+    (should-error (eval (cons 'if if-tail) nil) :type 'void-variable)
+    (should-error (eval (cons 'if if-tail) t) :type 'void-variable)))
 
 (ert-deftest eval-tests--let-with-circular-defs ()
   "Check that Emacs reports an error for (let VARS ...) when VARS is circular."
   (let ((vars (list 'v)))
     (setcdr vars vars)
     (dolist (let-sym '(let let*))
-      (should-error (eval (list let-sym vars))))))
+      (should-error (eval (list let-sym vars) nil)))))
 
 (ert-deftest eval-tests--mutating-cond ()
   "Check that Emacs doesn't crash on a cond clause that mutates during eval."
   (let ((clauses (list '((progn (setcdr clauses "ouch") nil)))))
-    (should-error (eval (cons 'cond clauses)))))
+    (should-error (eval (cons 'cond clauses) nil))
+    (should-error (eval (cons 'cond clauses) t))))
 
 (defun eval-tests--exceed-specbind-limit ()
   (defvar eval-tests--var1)
@@ -170,12 +183,13 @@ are found on the stack and therefore not garbage collected."
   "Remove the Lisp reference to the byte-compiled object."
   (setf (symbol-function #'eval-tests-33014-func) nil))
 
-(defun eval-tests-19790-backquote-comma-dot-substitution ()
+(ert-deftest eval-tests-19790-backquote-comma-dot-substitution ()
   "Regression test for Bug#19790.
 Don't handle destructive splicing in backquote expressions (like
 in Common Lisp).  Instead, make sure substitution in backquote
 expressions works for identifiers starting with period."
-  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok))) 'ok)))
+  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok) nil)) 'ok))
+  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok) t)) 'ok)))
 
 (ert-deftest eval-tests/backtrace-in-batch-mode ()
   (let ((emacs (expand-file-name invocation-name invocation-directory)))

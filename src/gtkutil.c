@@ -47,6 +47,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <gdk/gdkkeysyms.h>
 
+#ifdef HAVE_XINPUT2
+#include <X11/extensions/XInput2.h>
+#endif
+
 #ifdef HAVE_XFT
 #include <X11/Xft/Xft.h>
 #endif
@@ -836,6 +840,27 @@ my_log_handler (const gchar *log_domain, GLogLevelFlags log_level,
 {
   if (!strstr (msg, "visible children"))
     fprintf (stderr, "XX %s-WARNING **: %s\n", log_domain, msg);
+}
+#endif
+
+#if defined HAVE_GTK3 && defined HAVE_XINPUT2
+bool
+xg_is_menu_window (Display *dpy, Window wdesc)
+{
+  GtkWidget *gwdesc = xg_win_to_widget (dpy, wdesc);
+
+  if (GTK_IS_WINDOW (gwdesc))
+    {
+      GtkWidget *fw = gtk_bin_get_child (GTK_BIN (gwdesc));
+      if (GTK_IS_MENU (fw))
+	{
+	  GtkWidget *parent
+	    = gtk_menu_shell_get_parent_shell (GTK_MENU_SHELL (fw));
+	  return GTK_IS_MENU_BAR (parent);
+	}
+    }
+
+  return false;
 }
 #endif
 
@@ -2237,20 +2262,34 @@ xg_get_file_name (struct frame *f,
 
 #ifdef HAVE_GTK3
 
-#define XG_WEIGHT_TO_SYMBOL(w)			\
-  (w <= PANGO_WEIGHT_THIN ? Qextra_light	\
-   : w <= PANGO_WEIGHT_ULTRALIGHT ? Qlight	\
-   : w <= PANGO_WEIGHT_LIGHT ? Qsemi_light	\
-   : w < PANGO_WEIGHT_MEDIUM ? Qnormal		\
-   : w <= PANGO_WEIGHT_SEMIBOLD ? Qsemi_bold	\
-   : w <= PANGO_WEIGHT_BOLD ? Qbold		\
-   : w <= PANGO_WEIGHT_HEAVY ? Qextra_bold	\
-   : Qultra_bold)
+static
+Lisp_Object xg_weight_to_symbol (PangoWeight w)
+{
+  return
+    (w <= PANGO_WEIGHT_THIN ? Qthin                  /* 100 */
+     : w <= PANGO_WEIGHT_ULTRALIGHT ? Qultra_light   /* 200 */
+     : w <= PANGO_WEIGHT_LIGHT ? Qlight              /* 300 */
+#if PANGO_VERSION_CHECK(1, 36, 7)
+     : w <= PANGO_WEIGHT_SEMILIGHT ? Qsemi_light     /* 350 */
+#endif
+     : w <= PANGO_WEIGHT_BOOK ? Qbook                /* 380 */
+     : w <= PANGO_WEIGHT_NORMAL ? Qnormal            /* 400 */
+     : w <= PANGO_WEIGHT_MEDIUM ? Qmedium            /* 500 */
+     : w <= PANGO_WEIGHT_SEMIBOLD ? Qsemi_bold       /* 600 */
+     : w <= PANGO_WEIGHT_BOLD ? Qbold                /* 700 */
+     : w <= PANGO_WEIGHT_ULTRABOLD ? Qultra_bold     /* 800 */
+     : w <= PANGO_WEIGHT_HEAVY ? Qblack              /* 900 */
+     : Qultra_heavy);                                /* 1000 */
+}
 
-#define XG_STYLE_TO_SYMBOL(s)			\
-  (s == PANGO_STYLE_OBLIQUE ? Qoblique		\
-   : s == PANGO_STYLE_ITALIC ? Qitalic		\
-   : Qnormal)
+static
+Lisp_Object xg_style_to_symbol (PangoStyle s)
+{
+  return
+    (s == PANGO_STYLE_OBLIQUE ? Qoblique
+     : s == PANGO_STYLE_ITALIC ? Qitalic
+     : Qnormal);
+}
 
 #endif /* HAVE_GTK3 */
 
@@ -2341,8 +2380,8 @@ xg_get_font (struct frame *f, const char *default_name)
 	  font = CALLN (Ffont_spec,
 			QCfamily, build_string (family),
 			QCsize, make_float (pango_units_to_double (size)),
-			QCweight, XG_WEIGHT_TO_SYMBOL (weight),
-			QCslant, XG_STYLE_TO_SYMBOL (style));
+			QCweight, xg_weight_to_symbol (weight),
+			QCslant, xg_style_to_symbol (style));
 
           char *font_desc_str = pango_font_description_to_string (desc);
           dupstring (&x_last_font_name, font_desc_str);
@@ -2932,8 +2971,9 @@ xg_item_label_same_p (GtkMenuItem *witem, const char *label)
   char *utf8_label = get_utf8_string (label);
   const char *old_label = witem ? xg_get_menu_item_label (witem) : 0;
 
-  bool is_same = (!old_label == !utf8_label
-		  && (!old_label || strcmp (utf8_label, old_label) == 0));
+  bool is_same = (old_label
+		  ? utf8_label && strcmp (utf8_label, old_label) == 0
+		  : !utf8_label);
 
   if (utf8_label) g_free (utf8_label);
 
@@ -3221,7 +3261,7 @@ xg_update_menu_item (widget_value *val,
       gtk_label_set_text (wkey, utf8_key);
     }
 
-  if (! old_label || strcmp (utf8_label, old_label) != 0)
+  if (utf8_label && (! old_label || strcmp (utf8_label, old_label) != 0))
     {
       label_changed = true;
       gtk_label_set_text (wlbl, utf8_label);
@@ -3574,6 +3614,18 @@ xg_event_is_for_menubar (struct frame *f, const XEvent *event)
 
   if (! x->menubar_widget) return 0;
 
+#ifdef HAVE_XINPUT2
+  XIDeviceEvent *xev = (XIDeviceEvent *) event->xcookie.data;
+  if (event->type == GenericEvent) /* XI_ButtonPress or XI_ButtonRelease */
+    {
+      if (! (xev->event_x >= 0
+	     && xev->event_x < FRAME_PIXEL_WIDTH (f)
+	     && xev->event_y >= 0
+	     && xev->event_y < FRAME_MENUBAR_HEIGHT (f)))
+	return 0;
+    }
+  else
+#endif
   if (! (event->xbutton.x >= 0
          && event->xbutton.x < FRAME_PIXEL_WIDTH (f)
          && event->xbutton.y >= 0
@@ -3582,7 +3634,12 @@ xg_event_is_for_menubar (struct frame *f, const XEvent *event)
     return 0;
 
   gdpy = gdk_x11_lookup_xdisplay (FRAME_X_DISPLAY (f));
-  gw = gdk_x11_window_lookup_for_display (gdpy, event->xbutton.window);
+#ifdef HAVE_XINPUT2
+  if (event->type == GenericEvent)
+    gw = gdk_x11_window_lookup_for_display (gdpy, xev->event);
+  else
+#endif
+    gw = gdk_x11_window_lookup_for_display (gdpy, event->xbutton.window);
   if (! gw) return 0;
   gevent.any.window = gw;
   gevent.any.type = GDK_NOTHING;
@@ -4229,7 +4286,20 @@ xg_event_is_for_scrollbar (struct frame *f, const XEvent *event)
 {
   bool retval = 0;
 
+#ifdef HAVE_XINPUT2
+  XIDeviceEvent *xev = (XIDeviceEvent *) event->xcookie.data;
+  if (f && ((FRAME_DISPLAY_INFO (f)->supports_xi2
+	     && event->type == GenericEvent
+	     && (event->xgeneric.extension
+		 == FRAME_DISPLAY_INFO (f)->xi2_opcode)
+	     && ((event->xgeneric.evtype == XI_ButtonPress
+		  && xev->detail < 4)
+		 || (event->xgeneric.evtype == XI_Motion)))
+	    || (event->type == ButtonPress
+		&& event->xbutton.button < 4)))
+#else
   if (f && event->type == ButtonPress && event->xbutton.button < 4)
+#endif /* HAVE_XINPUT2 */
     {
       /* Check if press occurred outside the edit widget.  */
       GdkDisplay *gdpy = gdk_x11_lookup_xdisplay (FRAME_X_DISPLAY (f));
@@ -4247,10 +4317,29 @@ xg_event_is_for_scrollbar (struct frame *f, const XEvent *event)
       gwin = gdk_display_get_window_at_pointer (gdpy, NULL, NULL);
 #endif
       retval = gwin != gtk_widget_get_window (f->output_data.x->edit_widget);
+#ifdef HAVE_XINPUT2
+      GtkWidget *grab = gtk_grab_get_current ();
+      if (event->type == GenericEvent
+	  && event->xgeneric.evtype == XI_Motion)
+	retval = retval || (grab && GTK_IS_SCROLLBAR (grab));
+#endif
     }
+#ifdef HAVE_XINPUT2
+  else if (f && ((FRAME_DISPLAY_INFO (f)->supports_xi2
+		  && event->type == GenericEvent
+		  && (event->xgeneric.extension
+		      == FRAME_DISPLAY_INFO (f)->xi2_opcode)
+		  && ((event->xgeneric.evtype == XI_ButtonRelease
+		       && xev->detail < 4)
+		      || (event->xgeneric.evtype == XI_Motion)))
+		 || ((event->type == ButtonRelease
+		      && event->xbutton.button < 4)
+		     || event->type == MotionNotify)))
+#else
   else if (f
            && ((event->type == ButtonRelease && event->xbutton.button < 4)
                || event->type == MotionNotify))
+#endif /* HAVE_XINPUT2 */
     {
       /* If we are releasing or moving the scroll bar, it has the grab.  */
       GtkWidget *w = gtk_grab_get_current ();

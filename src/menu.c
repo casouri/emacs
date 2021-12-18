@@ -50,7 +50,8 @@ extern AppendMenuW_Proc unicode_append_menu;
 static bool
 have_boxes (void)
 {
-#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NTGUI) || defined(HAVE_NS)
+#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NTGUI) || defined (HAVE_NS) \
+  || defined (HAVE_HAIKU)
   if (FRAME_WINDOW_P (XFRAME (Vmenu_updating_frame)))
     return 1;
 #endif
@@ -422,7 +423,8 @@ single_menu_item (Lisp_Object key, Lisp_Object item, Lisp_Object dummy, void *sk
 		  AREF (item_properties, ITEM_PROPERTY_SELECTED),
 		  AREF (item_properties, ITEM_PROPERTY_HELP));
 
-#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NS) || defined (HAVE_NTGUI)
+#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NS) \
+  || defined (HAVE_NTGUI) || defined (HAVE_HAIKU)
   /* Display a submenu using the toolkit.  */
   if (FRAME_WINDOW_P (XFRAME (Vmenu_updating_frame))
       && ! (NILP (map) || NILP (enabled)))
@@ -872,6 +874,10 @@ update_submenu_strings (widget_value *first_wv)
     }
 }
 
+#endif /* USE_X_TOOLKIT || USE_GTK || HAVE_NS || HAVE_NTGUI */
+#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NS) \
+  || defined (HAVE_NTGUI) || defined (HAVE_HAIKU)
+
 /* Find the menu selection and store it in the keyboard buffer.
    F is the frame the menu is on.
    MENU_BAR_ITEMS_USED is the length of VECTOR.
@@ -959,7 +965,7 @@ find_and_call_menu_selection (struct frame *f, int menu_bar_items_used,
   SAFE_FREE ();
 }
 
-#endif /* USE_X_TOOLKIT || USE_GTK || HAVE_NS || HAVE_NTGUI */
+#endif /* USE_X_TOOLKIT || USE_GTK || HAVE_NS || HAVE_NTGUI || HAVE_HAIKU */
 
 #ifdef HAVE_NS
 /* As above, but return the menu selection instead of storing in kb buffer.
@@ -1107,7 +1113,7 @@ into menu items.  */)
 Lisp_Object
 x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
 {
-  Lisp_Object keymap, tem, tem2;
+  Lisp_Object keymap, tem, tem2 = Qnil;
   int xpos = 0, ypos = 0;
   Lisp_Object title;
   const char *error_name = NULL;
@@ -1127,9 +1133,12 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
 
     /* Decode the first argument: find the window and the coordinates.  */
     if (EQ (position, Qt)
-	|| (CONSP (position) && (EQ (XCAR (position), Qmenu_bar)
-				 || EQ (XCAR (position), Qtab_bar)
-				 || EQ (XCAR (position), Qtool_bar))))
+	|| (CONSP (position)
+	    && (EQ (XCAR (position), Qmenu_bar)
+		|| EQ (XCAR (position), Qtab_bar)
+		|| (CONSP (XCDR (position))
+		    && EQ (XCAR (XCDR (position)), Qtab_bar))
+		|| EQ (XCAR (position), Qtool_bar))))
       {
 	get_current_pos_p = 1;
       }
@@ -1243,8 +1252,21 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
 	CHECK_LIVE_WINDOW (window);
 	f = XFRAME (WINDOW_FRAME (win));
 
-	xpos = WINDOW_LEFT_EDGE_X (win);
-	ypos = WINDOW_TOP_EDGE_Y (win);
+	if (FIXNUMP (tem2))
+	  {
+	    /* Clicks in the text area, where TEM2 is a buffer
+	       position, are relative to the top-left edge of the text
+	       area, see keyboard.c:make_lispy_position.  */
+	    xpos = window_box_left (win, TEXT_AREA);
+	    ypos = (WINDOW_TOP_EDGE_Y (win)
+		    + WINDOW_TAB_LINE_HEIGHT (win)
+		    + WINDOW_HEADER_LINE_HEIGHT (win));
+	  }
+	else
+	  {
+	    xpos = WINDOW_LEFT_EDGE_X (win);
+	    ypos = WINDOW_TOP_EDGE_Y (win);
+	  }
       }
     else
       /* ??? Not really clean; should be CHECK_WINDOW_OR_FRAME,
@@ -1284,12 +1306,16 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
       /* Search for a string appearing directly as an element of the keymap.
 	 That string is the title of the menu.  */
       prompt = Fkeymap_prompt (keymap);
+
+#if defined (USE_GTK) || defined (HAVE_NS)
+      if (STRINGP (prompt)
+	  && SCHARS (prompt) > 0
+	  && !NILP (Fget_text_property (make_fixnum (0), Qhide, prompt)))
+	title = Qnil;
+      else
+#endif
       if (!NILP (prompt))
 	title = prompt;
-#ifdef HAVE_NS		/* Is that needed and NS-specific?  --Stef  */
-      else
-	title = build_string ("Select");
-#endif
 
       /* Make that be the pane title of the first pane.  */
       if (!NILP (prompt) && menu_items_n_panes >= 0)
@@ -1574,6 +1600,8 @@ syms_of_menu (void)
 {
   menu_items = Qnil;
   staticpro (&menu_items);
+
+  DEFSYM (Qhide, "hide");
 
   defsubr (&Sx_popup_menu);
   defsubr (&Sx_popup_dialog);

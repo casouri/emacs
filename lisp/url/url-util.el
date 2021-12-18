@@ -252,7 +252,7 @@ Will not do anything if `url-show-status' is nil."
     (while pairs
       (setq cur (car pairs)
 	    pairs (cdr pairs))
-      (unless (string-match "=" cur)
+      (unless (string-search "=" cur)
         (setq cur (concat cur "=")))
 
       (when (string-match "=" cur)
@@ -282,7 +282,7 @@ Given a QUERY in the form:
 \(This is the same format as produced by `url-parse-query-string')
 
 This will return a string
-\"key1=val1&key2=val2&key3=val1&key3=val2&key4&key5\". Keys may
+\"key1=val1&key2=val2&key3=val1&key3=val2&key4&key5\".  Keys may
 be strings or symbols; if they are symbols, the symbol name will
 be used.
 
@@ -335,10 +335,13 @@ instead of just \"key\" as in the example above."
 
 ;;;###autoload
 (defun url-unhex-string (str &optional allow-newlines)
-  "Remove %XX embedded spaces, etc in a URL.
+  "Decode %XX sequences in a percent-encoded URL.
 If optional second argument ALLOW-NEWLINES is non-nil, then allow the
 decoding of carriage returns and line feeds in the string, which is normally
-forbidden in URL encoding."
+forbidden in URL encoding.
+
+The resulting string in general requires decoding using an
+appropriate coding-system; see `decode-coding-string'."
   (setq str (or str ""))
   (let ((tmp "")
 	(case-fold-search t))

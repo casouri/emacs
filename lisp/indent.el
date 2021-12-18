@@ -81,23 +81,27 @@ This variable has no effect unless `tab-always-indent' is `complete'."
           (const :tag "Unless looking at a word" 'word)
           (const :tag "Unless at a word or parenthesis" 'word-or-paren)
           (const :tag "Unless at a word, parenthesis, or punctuation." 'word-or-paren-or-punct))
-  :version "27.1")
+  :version "28.1")
 
 (defvar indent-line-ignored-functions '(indent-relative
                                         indent-relative-maybe
                                         indent-relative-first-indent-point)
   "Values that are ignored by `indent-according-to-mode'.")
 
-(defun indent-according-to-mode ()
+(defun indent-according-to-mode (&optional inhibit-widen)
   "Indent line in proper way for current major mode.
 Normally, this is done by calling the function specified by the
 variable `indent-line-function'.  However, if the value of that
 variable is present in the `indent-line-ignored-functions' variable,
 handle it specially (since those functions are used for tabbing);
-in that case, indent by aligning to the previous non-blank line."
+in that case, indent by aligning to the previous non-blank line.
+
+Ignore restriction, unless the optional argument INHIBIT-WIDEN is
+non-nil."
   (interactive)
   (save-restriction
-    (widen)
+    (unless inhibit-widen
+      (widen))
   (syntax-propertize (line-end-position))
   (if (memq indent-line-function indent-line-ignored-functions)
       ;; These functions are used for tabbing, but can't be used for
@@ -463,7 +467,7 @@ Optional fifth argument OBJECT specifies the string or buffer to operate on."
 	(put-text-property begin to prop (funcall func val) object))))
 
 (defun increase-left-margin (from to inc)
-  "Increase or decrease the left-margin of the region.
+  "Increase or decrease the `left-margin' of the region.
 With no prefix argument, this adds `standard-indent' of indentation.
 A prefix arg (optional third arg INC noninteractively) specifies the amount
 to change the margin by, in characters.
@@ -520,11 +524,14 @@ If `auto-fill-mode' is active, re-fills region to fit in new margin."
 
 (defun beginning-of-line-text (&optional n)
   "Move to the beginning of the text on this line.
-With optional argument, move forward N-1 lines first.
-From the beginning of the line, moves past the left-margin indentation, the
-fill-prefix, and any indentation used for centering or right-justifying the
-line, but does not move past any whitespace that was explicitly inserted
-\(such as a tab used to indent the first line of a paragraph)."
+
+With optional argument N, move forward N-1 lines first.
+
+From the beginning of the line, moves past the `left-margin'
+indentation, the `fill-prefix', and any indentation used for
+centering or right-justifying the line, but does not move past
+any whitespace that was explicitly inserted (such as a tab used
+to indent the first line of a paragraph)."
   (interactive "^p")
   (beginning-of-line n)
   (skip-chars-forward " \t")
@@ -598,7 +605,10 @@ column to indent to; if it is nil, use one of the three methods above."
       (funcall indent-region-function start end)))
    ;; Else, use a default implementation that calls indent-line-function on
    ;; each line.
-   (t (indent-region-line-by-line start end)))
+   (t
+    (save-restriction
+      (widen)
+      (indent-region-line-by-line start end))))
   ;; In most cases, reindenting modifies the buffer, but it may also
   ;; leave it unmodified, in which case we have to deactivate the mark
   ;; by hand.
@@ -612,7 +622,7 @@ column to indent to; if it is nil, use one of the three methods above."
                 (make-progress-reporter "Indenting region..." (point) end))))
       (while (< (point) end)
         (or (and (bolp) (eolp))
-            (indent-according-to-mode))
+            (indent-according-to-mode t))
         (forward-line 1)
         (and pr (progress-reporter-update pr (point))))
       (and pr (progress-reporter-done pr))

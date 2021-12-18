@@ -164,12 +164,16 @@ int last_scroll_bar_drag_pos;
 /* Keyboard code page - may be changed by language-change events.  */
 int w32_keyboard_codepage;
 
+/* The number of screen lines to scroll for the default mouse-wheel
+   scroll amount, given by WHEEL_DELTA.  */
+static UINT w32_wheel_scroll_lines;
+
 #ifdef CYGWIN
 int w32_message_fd = -1;
 #endif /* CYGWIN */
 
-static void w32_handle_tab_bar_click (struct frame *,
-                                      struct input_event *);
+static Lisp_Object w32_handle_tab_bar_click (struct frame *,
+					     struct input_event *);
 static void w32_handle_tool_bar_click (struct frame *,
                                        struct input_event *);
 static void w32_define_cursor (Window, Emacs_Cursor);
@@ -270,6 +274,19 @@ XGetGCValues (void *ignore, XGCValues *gc,
   XChangeGC (ignore, xgcv, mask, gc);
 }
 #endif
+
+static void
+w32_get_mouse_wheel_vertical_delta (void)
+{
+  if (os_subtype != OS_SUBTYPE_NT)
+    return;
+
+  UINT scroll_lines;
+  BOOL ret = SystemParametersInfo (SPI_GETWHEELSCROLLLINES, 0,
+				   &scroll_lines, 0);
+  if (ret)
+    w32_wheel_scroll_lines = scroll_lines;
+}
 
 static void
 w32_set_clip_rectangle (HDC hdc, RECT *rect)
@@ -954,22 +971,6 @@ w32_set_cursor_gc (struct glyph_string *s)
 static void
 w32_set_mouse_face_gc (struct glyph_string *s)
 {
-  int face_id;
-  struct face *face;
-
-  /* What face has to be used last for the mouse face?  */
-  face_id = MOUSE_HL_INFO (s->f)->mouse_face_face_id;
-  face = FACE_FROM_ID_OR_NULL (s->f, face_id);
-  if (face == NULL)
-    face = FACE_FROM_ID (s->f, MOUSE_FACE_ID);
-
-  if (s->first_glyph->type == CHAR_GLYPH)
-    face_id = FACE_FOR_CHAR (s->f, face, s->first_glyph->u.ch, -1, Qnil);
-  else
-    face_id = FACE_FOR_CHAR (s->f, face, 0, -1, Qnil);
-  s->face = FACE_FROM_ID (s->f, face_id);
-  prepare_face_for_display (s->f, s->face);
-
   /* If font in this face is same as S->font, use it.  */
   if (s->font == s->face->font)
     s->gc = s->face->gc;
@@ -2031,11 +2032,14 @@ w32_draw_image_relief (struct glyph_string *s)
   if (s->hl == DRAW_IMAGE_SUNKEN
       || s->hl == DRAW_IMAGE_RAISED)
     {
-      thick = (tab_bar_button_relief < 0
-	       ? DEFAULT_TAB_BAR_BUTTON_RELIEF
-	       : (tool_bar_button_relief < 0
-		  ? DEFAULT_TOOL_BAR_BUTTON_RELIEF
-		  : min (tool_bar_button_relief, 1000000)));
+      if (s->face->id == TAB_BAR_FACE_ID)
+	thick = (tab_bar_button_relief < 0
+		 ? DEFAULT_TAB_BAR_BUTTON_RELIEF
+		 : min (tab_bar_button_relief, 1000000));
+      else
+	thick = (tool_bar_button_relief < 0
+		 ? DEFAULT_TOOL_BAR_BUTTON_RELIEF
+		 : min (tool_bar_button_relief, 1000000));
       raised_p = s->hl == DRAW_IMAGE_RAISED;
     }
   else
@@ -2054,11 +2058,11 @@ w32_draw_image_relief (struct glyph_string *s)
 	  && FIXNUMP (XCAR (Vtab_bar_button_margin))
 	  && FIXNUMP (XCDR (Vtab_bar_button_margin)))
 	{
-	  extra_x = XFIXNUM (XCAR (Vtab_bar_button_margin));
-	  extra_y = XFIXNUM (XCDR (Vtab_bar_button_margin));
+	  extra_x = XFIXNUM (XCAR (Vtab_bar_button_margin)) - thick;
+	  extra_y = XFIXNUM (XCDR (Vtab_bar_button_margin)) - thick;
 	}
       else if (FIXNUMP (Vtab_bar_button_margin))
-	extra_x = extra_y = XFIXNUM (Vtab_bar_button_margin);
+	extra_x = extra_y = XFIXNUM (Vtab_bar_button_margin) - thick;
     }
 
   if (s->face->id == TOOL_BAR_FACE_ID)
@@ -2420,29 +2424,15 @@ w32_draw_stretch_glyph_string (struct glyph_string *s)
   else if (!s->background_filled_p)
     {
       int background_width = s->background_width;
-      int x = s->x, text_left_x = window_box_left_offset (s->w, TEXT_AREA);
+      int x = s->x, text_left_x = window_box_left (s->w, TEXT_AREA);
 
       /* Don't draw into left fringe or scrollbar area except for
          header line and mode line.  */
-      if (x < text_left_x && !s->row->mode_line_p)
+      if (s->area == TEXT_AREA
+	  && x < text_left_x && !s->row->mode_line_p)
 	{
-	  int left_x = WINDOW_LEFT_SCROLL_BAR_AREA_WIDTH (s->w);
-	  int right_x = text_left_x;
-
-	  if (WINDOW_HAS_FRINGES_OUTSIDE_MARGINS (s->w))
-	    left_x += WINDOW_LEFT_FRINGE_WIDTH (s->w);
-	  else
-	    right_x -= WINDOW_LEFT_FRINGE_WIDTH (s->w);
-
-	  /* Adjust X and BACKGROUND_WIDTH to fit inside the space
-	     between LEFT_X and RIGHT_X.  */
-	  if (x < left_x)
-	    {
-	      background_width -= left_x - x;
-	      x = left_x;
-	    }
-	  if (x + background_width > right_x)
-	    background_width = right_x - x;
+	  background_width -= text_left_x - x;
+	  x = text_left_x;
 	}
       if (background_width > 0)
 	w32_draw_glyph_string_bg_rect (s, x, s->y, background_width, s->height);
@@ -3230,32 +3220,94 @@ w32_construct_mouse_wheel (struct input_event *result, W32Msg *msg,
 {
   POINT p;
   int delta;
+  static int sum_delta_y = 0;
 
   result->kind = msg->msg.message == WM_MOUSEHWHEEL ? HORIZ_WHEEL_EVENT
                                                     : WHEEL_EVENT;
   result->code = 0;
   result->timestamp = msg->msg.time;
+  result->arg = Qnil;
 
   /* A WHEEL_DELTA positive value indicates that the wheel was rotated
      forward, away from the user (up); a negative value indicates that
      the wheel was rotated backward, toward the user (down).  */
   delta = GET_WHEEL_DELTA_WPARAM (msg->msg.wParam);
+  if (delta == 0)
+    {
+      result->kind = NO_EVENT;
+      return Qnil;
+    }
+
+  /* With multiple monitors, we can legitimately get negative
+     coordinates, so cast to short to interpret them correctly.  */
+  p.x = (short) LOWORD (msg->msg.lParam);
+  p.y = (short) HIWORD (msg->msg.lParam);
+
+  if (eabs (delta) < WHEEL_DELTA)
+    {
+      /* This is high-precision mouse wheel, which sends
+	 fine-resolution wheel events.  Produce a wheel event only if
+	 the conditions for sending such an event are fulfilled.  */
+      int scroll_unit = max (w32_wheel_scroll_lines, 1), nlines;
+      double value_to_report;
+
+      /* w32_wheel_scroll_lines == UINT_MAX means the user asked for
+	 "entire page" to be the scroll unit.  We interpret that as
+	 the height of the window under the mouse pointer.  */
+      if (w32_wheel_scroll_lines == UINT_MAX)
+	{
+	  Lisp_Object window = window_from_coordinates (f, p.x, p.y, NULL,
+							false, false);
+	  if (!WINDOWP (window))
+	    {
+	      result->kind = NO_EVENT;
+	      return Qnil;
+	    }
+	  scroll_unit = XWINDOW (window)->pixel_height;
+	  if (scroll_unit < 1)	/* paranoia */
+	    scroll_unit = 1;
+	}
+
+      /* If mwheel-coalesce-scroll-events is non-nil, report a wheel event
+	 only when we have accumulated enough delta's for WHEEL_DELTA.  */
+      if (mwheel_coalesce_scroll_events)
+	{
+	  /* If the user changed the direction, reset the accumulated
+	     deltas. */
+	  if ((delta > 0) != (sum_delta_y > 0))
+	    sum_delta_y = 0;
+	  sum_delta_y += delta;
+	  /* https://docs.microsoft.com/en-us/previous-versions/ms997498(v=msdn.10) */
+	  if (eabs (sum_delta_y) < WHEEL_DELTA)
+	    {
+	      result->kind = NO_EVENT;
+	      return Qnil;
+	    }
+	  value_to_report =
+	    ((double)FRAME_LINE_HEIGHT (f) * scroll_unit)
+	    / ((double)WHEEL_DELTA / sum_delta_y);
+	  sum_delta_y = 0;
+	}
+      else
+	value_to_report =
+	    ((double)FRAME_LINE_HEIGHT (f) * scroll_unit)
+	    / ((double)WHEEL_DELTA / delta);
+      nlines = value_to_report / FRAME_LINE_HEIGHT (f) + 0.5;
+      result->arg = list3 (make_fixnum (nlines),
+			   make_float (0.0),
+			   make_float (value_to_report));
+    }
 
   /* The up and down modifiers indicate if the wheel was rotated up or
      down based on WHEEL_DELTA value.  */
   result->modifiers = (msg->dwModifiers
                        | ((delta < 0 ) ? down_modifier : up_modifier));
 
-  /* With multiple monitors, we can legitimately get negative
-     coordinates, so cast to short to interpret them correctly.  */
-  p.x = (short) LOWORD (msg->msg.lParam);
-  p.y = (short) HIWORD (msg->msg.lParam);
   /* For the case that F's w32 window is not msg->msg.hwnd.  */
   ScreenToClient (FRAME_W32_WINDOW (f), &p);
   XSETINT (result->x, p.x);
   XSETINT (result->y, p.y);
   XSETFRAME (result->frame_or_window, f);
-  result->arg = Qnil;
   return Qnil;
 }
 
@@ -3684,17 +3736,17 @@ w32_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
    frame-relative coordinates X/Y.  EVENT_TYPE is either ButtonPress
    or ButtonRelease.  */
 
-static void
+static Lisp_Object
 w32_handle_tab_bar_click (struct frame *f, struct input_event *button_event)
 {
   int x = XFIXNAT (button_event->x);
   int y = XFIXNAT (button_event->y);
 
   if (button_event->modifiers & down_modifier)
-    handle_tab_bar_click (f, x, y, 1, 0);
+    return handle_tab_bar_click (f, x, y, 1, 0);
   else
-    handle_tab_bar_click (f, x, y, 0,
-                          button_event->modifiers & ~up_modifier);
+    return handle_tab_bar_click (f, x, y, 0,
+				 button_event->modifiers & ~up_modifier);
 }
 
 
@@ -4932,6 +4984,14 @@ w32_read_socket (struct terminal *terminal,
 	    }
 	  break;
 
+	case WM_SETTINGCHANGE:
+	  /* We are only interested in changes of the number of lines
+	     to scroll when the vertical mouse wheel is moved.  This
+	     is only supported on NT.  */
+	  if (msg.msg.wParam == SPI_SETWHEELSCROLLLINES)
+	    w32_get_mouse_wheel_vertical_delta ();
+	  break;
+
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
 	  f = w32_window_to_frame (dpyinfo, msg.msg.hwnd);
@@ -5186,6 +5246,7 @@ w32_read_socket (struct terminal *terminal,
 	  {
             /* If we decide we want to generate an event to be seen
                by the rest of Emacs, we put it here.  */
+	    Lisp_Object tab_bar_arg = Qnil;
 	    bool tab_bar_p = 0;
 	    bool tool_bar_p = 0;
 	    int button = 0;
@@ -5208,18 +5269,21 @@ w32_read_socket (struct terminal *terminal,
 
                     if (EQ (window, f->tab_bar_window))
                       {
-                        w32_handle_tab_bar_click (f, &inev);
+                        tab_bar_arg = w32_handle_tab_bar_click (f, &inev);
                         tab_bar_p = 1;
                       }
                   }
 
-                if (tab_bar_p
+                if ((tab_bar_p && NILP (tab_bar_arg))
 		    || (dpyinfo->w32_focus_frame
 			&& f != dpyinfo->w32_focus_frame
 			/* This does not help when the click happens in
 			   a grand-parent frame.  */
 			&& !frame_ancestor_p (f, dpyinfo->w32_focus_frame)))
 		  inev.kind = NO_EVENT;
+
+		if (!NILP (tab_bar_arg))
+		  inev.arg = tab_bar_arg;
 
                 /* Is this in the tool-bar?  */
                 if (WINDOWP (f->tool_bar_window)
@@ -7545,6 +7609,8 @@ w32_initialize (void)
     horizontal_scroll_bar_left_border = horizontal_scroll_bar_right_border
       = GetSystemMetrics (SM_CYHSCROLL);
   }
+
+  w32_get_mouse_wheel_vertical_delta ();
 }
 
 void

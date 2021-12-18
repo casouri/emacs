@@ -32,7 +32,7 @@
 ;; Here is a brief explanation how this code works.
 ;; Firstly, we analyze the tree by calling cconv-analyze-form.
 ;; This function finds all mutated variables, all functions that are suitable
-;; for lambda lifting and all variables captured by closure. It passes the tree
+;; for lambda lifting and all variables captured by closure.  It passes the tree
 ;; once, returning a list of three lists.
 ;;
 ;; Then we calculate the intersection of the first and third lists returned by
@@ -286,7 +286,7 @@ of converted forms."
               (let (and (pred stringp) msg)
                 (cconv--warn-unused-msg arg "argument")))
          (if (assq arg env) (push `(,arg . nil) env)) ;FIXME: Is it needed?
-         (push (lambda (body) (macroexp--warn-wrap msg body)) wrappers))
+         (push (lambda (body) (macroexp--warn-wrap msg body 'lexical)) wrappers))
         (_
          (if (assq arg env) (push `(,arg . nil) env)))))
     (setq funcbody (mapcar (lambda (form)
@@ -303,6 +303,25 @@ of converted forms."
             (dolist (wrapper wrappers) (setq body (funcall wrapper body)))
             `(,@(nreverse special-forms) ,@(macroexp-unprogn body))))
       funcbody)))
+
+(defun cconv--lifted-arg (var env)
+  "The argument to use for VAR in λ-lifted calls according to ENV.
+This is used when VAR is being shadowed; we may still need its value for
+such calls."
+  (let ((mapping (cdr (assq var env))))
+    (pcase-exhaustive mapping
+      (`(internal-get-closed-var . ,_)
+       ;; The variable is captured.
+       mapping)
+      (`(car-safe ,exp)
+       ;; The variable is mutably captured; skip
+       ;; the indirection step because the variable is
+       ;; passed "by reference" to the λ-lifted function.
+       exp)
+      (_
+       ;; The variable is not captured; use the (shadowed) variable value.
+       ;; (If the mapping is `(car-safe SYMBOL)', SYMBOL is always VAR.
+       var))))
 
 (defun cconv-convert (form env extend)
   ;; This function actually rewrites the tree.
@@ -357,81 +376,92 @@ places where they originally did not directly appear."
                           "Malformed `%S' binding: %S"
                           letsym binder))
 		       (setq value (cadr binder))
-		       (car binder)))
-		(new-val
-		 (pcase (cconv--var-classification binder form)
-                   ;; Check if var is a candidate for lambda lifting.
-                   ((and :lambda-candidate
-                         (guard
-                          (progn
-                            (cl-assert (and (eq (car value) 'function)
-                                            (eq (car (cadr value)) 'lambda)))
-                            (cl-assert (equal (cddr (cadr value))
-                                              (caar cconv-freevars-alist)))
-                            ;; Peek at the freevars to decide whether to λ-lift.
-                            (let* ((fvs (cdr (car cconv-freevars-alist)))
-                                   (fun (cadr value))
-                                   (funargs (cadr fun))
-                                   (funcvars (append fvs funargs)))
+		       (car binder))))
+           (cond
+            ;; Ignore bindings without a valid name.
+            ((not (symbolp var))
+             (byte-compile-warn "attempt to let-bind nonvariable `%S'" var))
+            ((or (booleanp var) (keywordp var))
+             (byte-compile-warn "attempt to let-bind constant `%S'" var))
+            (t
+             (let ((new-val
+		    (pcase (cconv--var-classification binder form)
+                      ;; Check if var is a candidate for lambda lifting.
+                      ((and :lambda-candidate
+                            (guard
+                             (progn
+                               (cl-assert (and (eq (car value) 'function)
+                                               (eq (car (cadr value)) 'lambda)))
+                               (cl-assert (equal (cddr (cadr value))
+                                                 (caar cconv-freevars-alist)))
+                               ;; Peek at the freevars to decide whether
+                               ;; to λ-lift.
+                               (let* ((fvs (cdr (car cconv-freevars-alist)))
+                                      (fun (cadr value))
+                                      (funargs (cadr fun))
+                                      (funcvars (append fvs funargs)))
 					; lambda lifting condition
-                              (and fvs (>= cconv-liftwhen
-					   (length funcvars)))))))
+                                 (and fvs (>= cconv-liftwhen
+					      (length funcvars)))))))
 					; Lift.
-                    (let* ((fvs (cdr (pop cconv-freevars-alist)))
-                           (fun (cadr value))
-                           (funargs (cadr fun))
-                           (funcvars (append fvs funargs))
-                           (funcbody (cddr fun))
-                           (funcbody-env ()))
-                      (push `(,var . (apply-partially ,var . ,fvs)) new-env)
-                      (dolist (fv fvs)
-                        (cl-pushnew fv new-extend)
-                        (if (and (eq 'car-safe (car-safe (cdr (assq fv env))))
-                                 (not (memq fv funargs)))
-                            (push `(,fv . (car-safe ,fv)) funcbody-env)))
-                      `(function (lambda ,funcvars .
-                                   ,(cconv--convert-funcbody
-                                     funargs funcbody funcbody-env value)))))
+                       (let* ((fvs (cdr (pop cconv-freevars-alist)))
+                              (fun (cadr value))
+                              (funargs (cadr fun))
+                              (funcvars (append fvs funargs))
+                              (funcbody (cddr fun))
+                              (funcbody-env ()))
+                         (push `(,var . (apply-partially ,var . ,fvs)) new-env)
+                         (dolist (fv fvs)
+                           (cl-pushnew fv new-extend)
+                           (if (and (eq 'car-safe (car-safe
+                                                   (cdr (assq fv env))))
+                                    (not (memq fv funargs)))
+                               (push `(,fv . (car-safe ,fv)) funcbody-env)))
+                         `(function (lambda ,funcvars .
+                                      ,(cconv--convert-funcbody
+                                        funargs funcbody funcbody-env value)))))
 
-                  ;; Check if it needs to be turned into a "ref-cell".
-                  (:captured+mutated
-                   ;; Declared variable is mutated and captured.
-                   (push `(,var . (car-safe ,var)) new-env)
-                   `(list ,(cconv-convert value env extend)))
+                      ;; Check if it needs to be turned into a "ref-cell".
+                      (:captured+mutated
+                       ;; Declared variable is mutated and captured.
+                       (push `(,var . (car-safe ,var)) new-env)
+                       `(list ,(cconv-convert value env extend)))
 
-                  ;; Check if it needs to be turned into a "ref-cell".
-                  (:unused
-                   ;; Declared variable is unused.
-                   (if (assq var new-env) (push `(,var) new-env)) ;FIXME:Needed?
-                   (let ((newval
-                          `(ignore ,(cconv-convert value env extend)))
-                         (msg (cconv--warn-unused-msg var "variable")))
-                     (if (null msg) newval
-                       (macroexp--warn-wrap msg newval))))
+                      ;; Check if it needs to be turned into a "ref-cell".
+                      (:unused
+                       ;; Declared variable is unused.
+                       (if (assq var new-env)
+                           (push `(,var) new-env)) ;FIXME:Needed?
+                       (let ((newval
+                              `(ignore ,(cconv-convert value env extend)))
+                             (msg (cconv--warn-unused-msg var "variable")))
+                         (if (null msg) newval
+                           (macroexp--warn-wrap msg newval 'lexical))))
 
-                  ;; Normal default case.
-                  (_
-                   (if (assq var new-env) (push `(,var) new-env))
-                   (cconv-convert value env extend)))))
+                      ;; Normal default case.
+                      (_
+                       (if (assq var new-env) (push `(,var) new-env))
+                       (cconv-convert value env extend)))))
 
-           (when (and (eq letsym 'let*) (memq var new-extend))
-             ;; One of the lambda-lifted vars is shadowed, so add
-             ;; a reference to the outside binding and arrange to use
-             ;; that reference.
-             (let ((closedsym (make-symbol (format "closed-%s" var))))
-               (setq new-env (cconv--remap-llv new-env var closedsym))
-               (setq new-extend (cons closedsym (remq var new-extend)))
-               (push `(,closedsym ,var) binders-new)))
+               (when (and (eq letsym 'let*) (memq var new-extend))
+                 ;; One of the lambda-lifted vars is shadowed, so add
+                 ;; a reference to the outside binding and arrange to use
+                 ;; that reference.
+                 (let ((var-def (cconv--lifted-arg var env))
+                       (closedsym (make-symbol (format "closed-%s" var))))
+                   (setq new-env (cconv--remap-llv new-env var closedsym))
+                   (setq new-extend (cons closedsym (remq var new-extend)))
+                   (push `(,closedsym ,var-def) binders-new)))
 
-           ;; We push the element after redefined free variables are
-           ;; processed.  This is important to avoid the bug when free
-           ;; variable and the function have the same name.
-           (push (list var new-val) binders-new)
+               ;; We push the element after redefined free variables are
+               ;; processed.  This is important to avoid the bug when free
+               ;; variable and the function have the same name.
+               (push (list var new-val) binders-new)
 
-           (when (eq letsym 'let*)
-             (setq env new-env)
-             (setq extend new-extend))
-           ))                           ; end of dolist over binders
+               (when (eq letsym 'let*)
+                 (setq env new-env)
+                 (setq extend new-extend))))))
+         )                           ; end of dolist over binders
 
        (when (not (eq letsym 'let*))
          ;; We can't do the cconv--remap-llv at the same place for let and
@@ -439,14 +469,13 @@ places where they originally did not directly appear."
          ;; before we know that the var will be in `new-extend' (bug#24171).
          (dolist (binder binders-new)
            (when (memq (car-safe binder) new-extend)
-             ;; One of the lambda-lifted vars is shadowed, so add
-             ;; a reference to the outside binding and arrange to use
-             ;; that reference.
+             ;; One of the lambda-lifted vars is shadowed.
              (let* ((var (car-safe binder))
+                    (var-def (cconv--lifted-arg var env))
                     (closedsym (make-symbol (format "closed-%s" var))))
                (setq new-env (cconv--remap-llv new-env var closedsym))
                (setq new-extend (cons closedsym (remq var new-extend)))
-               (push `(,closedsym ,var) binders-new)))))
+               (push `(,closedsym ,var-def) binders-new)))))
 
        `(,letsym ,(nreverse binders-new)
                  . ,(mapcar (lambda (form)
@@ -506,7 +535,7 @@ places where they originally did not directly appear."
             (newprotform (cconv-convert protected-form env extend)))
        `(condition-case ,var
             ,(if msg
-                 (macroexp--warn-wrap msg newprotform)
+                 (macroexp--warn-wrap msg newprotform 'lexical)
                newprotform)
           ,@(mapcar
              (lambda (handler)
@@ -599,13 +628,14 @@ FORM is the parent form that binds this var."
        ,_ ,_ ,_ ,_)
      ;; FIXME: Convert this warning to use `macroexp--warn-wrap'
      ;; so as to give better position information.
-     (byte-compile-warn
-      "%s `%S' not left unused" varkind var))
+     (when (byte-compile-warning-enabled-p 'not-unused var)
+       (byte-compile-warn "%s `%S' not left unused" varkind var)))
     ((and (let (or 'let* 'let) (car form))
           `((,var) ;; (or `(,var nil) : Too many false positives: bug#47080
             t nil ,_ ,_))
      ;; FIXME: Convert this warning to use `macroexp--warn-wrap'
-     ;; so as to give better position information.
+     ;; so as to give better position information and obey
+     ;; `byte-compile-warnings'.
      (unless (not (intern-soft var))
        (byte-compile-warn "Variable `%S' left uninitialized" var))))
   (pcase vardata
@@ -782,6 +812,8 @@ This function does not return anything but instead fills the
     ;; (`(declare . ,_) nil)               ;The args don't contain code.
 
     (`(,_ . ,body-forms)    ; First element is a function or whatever.
+     (unless (listp body-forms)
+       (signal 'wrong-type-argument (list 'proper-list-p form)))
      (dolist (form body-forms) (cconv-analyze-form form env)))
 
     ((pred symbolp)

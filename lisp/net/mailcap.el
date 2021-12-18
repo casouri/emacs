@@ -55,7 +55,7 @@ you have an entry for \"image/*\" in your ~/.mailcap file."
   "A syntax table for parsing SGML attributes.")
 
 (defvar mailcap-print-command
-  (mapconcat 'identity
+  (mapconcat #'identity
 	     (cons (if (boundp 'lpr-command)
 		       lpr-command
 		     "lpr")
@@ -93,7 +93,7 @@ The elements of the list are alists of the following structure
    (type   . MIME-TYPE)
    (test   . TEST))
 
-where VIEWER is either a lisp command, e.g., a major-mode, or a
+where VIEWER is either a Lisp command, e.g., a major mode, or a
 string containing a shell command for viewing files of the
 defined MIME-TYPE.  In case of a shell command, %s will be
 replaced with the file.
@@ -101,7 +101,7 @@ replaced with the file.
 MIME-TYPE is a regular expression being matched against the
 actual MIME type.  It is implicitly surrounded with ^ and $.
 
-TEST is a lisp form which is evaluated in order to test if the
+TEST is a Lisp form which is evaluated in order to test if the
 entry should be chosen.  The `test' entry is optional.
 
 When selecting a viewer for a given MIME type, the first viewer
@@ -116,8 +116,7 @@ is consulted."
 	   (regexp :tag "MIME Type")
 	   (sexp :tag "Test (optional)")))
   :get #'mailcap--get-user-mime-data
-  :set #'mailcap--set-user-mime-data
-  :group 'mailcap)
+  :set #'mailcap--set-user-mime-data)
 
 ;; Postpone using defcustom for this as it's so big and we essentially
 ;; have to have two copies of the data around then.  Perhaps just
@@ -344,8 +343,7 @@ Same format as `mailcap-mime-data'.")
   "Directory to which `mailcap-save-binary-file' downloads files by default.
 nil means your home directory."
   :type '(choice (const :tag "Home directory" nil)
-		 directory)
-  :group 'mailcap)
+		 directory))
 
 (defvar mailcap-poor-system-types
   '(ms-dos windows-nt)
@@ -423,14 +421,6 @@ MAILCAPS if set; otherwise (on Unix) use the path from RFC 1524, plus
   (interactive (list nil t))
   (when (or (not mailcap-parsed-p)
 	    force)
-    ;; Clear out all old data.
-    (setq mailcap--computed-mime-data nil)
-    ;; Add the Emacs-distributed defaults (which will be used as
-    ;; fallbacks).  Do it this way instead of just copying the list,
-    ;; since entries are destructively modified.
-    (cl-loop for (major . minors) in mailcap-mime-data
-             do (cl-loop for (minor . entry) in minors
-                         do (mailcap-add-mailcap-entry major minor entry)))
     (cond
      (path nil)
      ((getenv "MAILCAPS")
@@ -447,18 +437,26 @@ MAILCAPS if set; otherwise (on Unix) use the path from RFC 1524, plus
               ("/etc/mailcap" system)
               ("/usr/etc/mailcap" system)
 	      ("/usr/local/etc/mailcap" system)))))
-    ;; The ~/.mailcap entries will end up first in the resulting data.
-    (dolist (spec (reverse
-                   (if (stringp path)
-                       (split-string path path-separator t)
-                     path)))
-      (let ((source (and (consp spec) (cadr spec)))
-            (file-name (if (stringp spec)
-                           spec
-                         (car spec))))
-        (when (and (file-readable-p file-name)
-                   (file-regular-p file-name))
-          (mailcap-parse-mailcap file-name source))))
+    (when (stringp path)
+      (setq path (mapcar #'list (split-string path path-separator t))))
+    (when (seq-some (lambda (f)
+                      (file-has-changed-p (car f) 'mail-parse-mailcaps))
+                    path)
+      ;; Clear out all old data.
+      (setq mailcap--computed-mime-data nil)
+      ;; Add the Emacs-distributed defaults (which will be used as
+      ;; fallbacks).  Do it this way instead of just copying the list,
+      ;; since entries are destructively modified.
+      (cl-loop for (major . minors) in mailcap-mime-data
+               do (cl-loop for (minor . entry) in minors
+                           do (mailcap-add-mailcap-entry major minor entry)))
+      ;; The ~/.mailcap entries will end up first in the resulting data.
+      (dolist (spec (reverse path))
+	(let ((source (cadr spec))
+	      (file-name (car spec)))
+	  (when (and (file-readable-p file-name)
+		     (file-regular-p file-name))
+	    (mailcap-parse-mailcap file-name source)))))
     (setq mailcap-parsed-p t)))
 
 (defun mailcap-parse-mailcap (fname &optional source)
@@ -636,7 +634,7 @@ the test clause will be unchanged."
      ((and (listp test) (symbolp (car test))) test)
      ((or (stringp test)
 	  (and (listp test) (stringp (car test))
-	       (setq test (mapconcat 'identity test " "))))
+	       (setq test (mapconcat #'identity test " "))))
       (with-temp-buffer
 	(insert test)
 	(goto-char (point-min))
@@ -707,12 +705,12 @@ to supply to the test."
 	      (symbol-value test))
 	     ((and (listp test)		; List to be eval'd
 		   (symbolp (car test)))
-	      (eval test))
+	      (eval test t))
 	     (t
 	      (setq test (mailcap-unescape-mime-test test type-info)
 		    test (list shell-file-name nil nil nil
 			       shell-command-switch test)
-		    status (apply 'call-process test))
+		    status (apply #'call-process test))
 	      (eq 0 status))))
 	   (push (list otest result) mailcap-viewer-test-cache)
 	   result))))
@@ -837,7 +835,7 @@ If NO-DECODE is non-nil, don't decode STRING."
             (dolist (entry viewers)
               (when (mailcap-viewer-passes-test entry info)
                 (push entry passed)))
-            (setq passed (sort (nreverse passed) 'mailcap-viewer-lessp))
+            (setq passed (sort (nreverse passed) #'mailcap-viewer-lessp))
             ;; When we want to prefer entries from the user's
             ;; ~/.mailcap file, then we filter out the system entries
             ;; and see whether we have anything left.
@@ -1065,17 +1063,26 @@ For instance, \"foo.png\" will result in \"image/png\"."
        (match-string 1 file-name)
      "")))
 
+;;;###autoload
+(defun mailcap-mime-type-to-extension (mime-type)
+  "Return a file name extension based on a MIME-TYPE.
+For instance, `image/png' will result in `png'."
+  (intern (cadr (split-string (if (symbolp mime-type)
+                                  (symbol-name mime-type)
+                                mime-type)
+                              "/"))))
+
 (defun mailcap-mime-types ()
   "Return a list of MIME media types."
   (mailcap-parse-mimetypes)
   (delete-dups
    (nconc
-    (mapcar 'cdr mailcap-mime-extensions)
+    (mapcar #'cdr mailcap-mime-extensions)
     (let (res type)
       (dolist (data mailcap--computed-mime-data)
         (dolist (info (cdr data))
           (setq type (cdr (assq 'type (cdr info))))
-          (unless (string-match-p "\\*" type)
+          (unless (string-search "*" type)
             (push type res))))
       (nreverse res)))))
 
@@ -1177,7 +1184,24 @@ See \"~/.mailcap\", `mailcap-mime-data' and related files and variables."
 		   (shell-quote-argument (convert-standard-filename file))
 		   command
 		   nil t))
-    (start-process-shell-command command nil command)))
+    ;; Handlers such as "gio open" and kde-open5 start viewer in background
+    ;; and exit immediately.  Avoid `start-process' since it assumes
+    ;; :connection-type `pty' and kills children processes with SIGHUP
+    ;; when temporary terminal session is finished (Bug#44824).
+    ;; An alternative is `process-connection-type' let-bound to nil for
+    ;; `start-process-shell-command' call (with no chance to report failure).
+    (make-process
+     :name "mailcap-view-file"
+     :connection-type 'pipe
+     :buffer nil ; "*Messages*" may be suitable for debugging
+     :sentinel (lambda (proc event)
+                 (when (and (memq (process-status proc) '(exit signal))
+                            (/= (process-exit-status proc) 0))
+                   (message
+                    "Command %s: %s."
+                    (mapconcat #'identity (process-command proc) " ")
+                    (substring event 0 -1))))
+     :command (list shell-file-name shell-command-switch command))))
 
 (provide 'mailcap)
 

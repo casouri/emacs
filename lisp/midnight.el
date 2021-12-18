@@ -26,7 +26,7 @@
 ;; To use the file, put (require 'midnight) into your .emacs.  Then, at
 ;; midnight, Emacs will run the normal hook `midnight-hook'.  You can
 ;; put whatever you like there, say, `calendar'; by default there is
-;; only one function there - `clean-buffer-list'. It will kill the
+;; only one function there - `clean-buffer-list'.  It will kill the
 ;; buffers matching `clean-buffer-list-kill-buffer-names' and
 ;; `clean-buffer-list-kill-regexps' and the buffers which where last
 ;; displayed more than `clean-buffer-list-delay-general' days ago,
@@ -159,7 +159,7 @@ the current date/time, buffer name, how many seconds ago it was
 displayed (can be nil if the buffer was never displayed) and its
 lifetime, i.e., its \"age\" when it will be purged."
   (interactive)
-  (let ((tm (current-time)) bts (ts (format-time-string "%Y-%m-%d %T"))
+  (let* ((tm (current-time)) bts (ts (format-time-string "%Y-%m-%d %T" tm))
         delay cbld bn)
     (dolist (buf (buffer-list))
       (when (buffer-live-p buf)

@@ -263,7 +263,7 @@ distribution.  Mixed-case symbols are convenience aliases.")
 (defgroup reftex nil
   "LaTeX label and citation support."
   :tag "RefTeX"
-  :link '(url-link :tag "Home Page"
+  :link '(url-link :tag "Website"
                    "https://www.gnu.org/software/auctex/reftex.html")
   :link '(emacs-commentary-link :tag "Commentary in reftex.el" "reftex.el")
   :link '(custom-manual "(reftex)Top")
@@ -330,7 +330,8 @@ select the nearest entry with the correct new level."
   "The maximum level of toc entries which will be included in the TOC.
 Section headings with a bigger level will be ignored.  In RefTeX, chapters
 are level 1, sections are level 2 etc.
-This variable can be changed from within the *toc* buffer with the `t' key."
+This variable can be changed from within the *toc* buffer with \
+\\<reftex-toc-mode-map>\\[reftex-toc-max-level]."
   :group 'reftex-table-of-contents-browser
   :type 'integer)
 
@@ -391,19 +392,19 @@ that the *toc* window fills half the frame."
 
 (defcustom reftex-toc-include-file-boundaries nil
   "Non-nil means, include file boundaries in *toc* buffer.
-This flag can be toggled from within the *toc* buffer with the `F' key."
+This flag can be toggled from within the *toc* buffer with the \\`F' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
 (defcustom reftex-toc-include-labels nil
   "Non-nil means, include labels in *toc* buffer.
-This flag can be toggled from within the *toc* buffer with the `l' key."
+This flag can be toggled from within the *toc* buffer with the \\`l' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
 (defcustom reftex-toc-include-index-entries nil
   "Non-nil means, include index entries in *toc* buffer.
-This flag can be toggled from within the *toc* buffer with the `i' key."
+This flag can be toggled from within the *toc* buffer with the \\`i' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
@@ -421,20 +422,20 @@ changed."
 (defcustom reftex-toc-include-context nil
   "Non-nil means, include context with labels in the *toc* buffer.
 Context will only be shown when labels are visible as well.
-This flag can be toggled from within the *toc* buffer with the `c' key."
+This flag can be toggled from within the *toc* buffer with the \\`c' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
 (defcustom reftex-toc-follow-mode nil
   "Non-nil means, point in *toc* buffer will cause other window to follow.
 The other window will show the corresponding part of the document.
-This flag can be toggled from within the *toc* buffer with the `f' key."
+This flag can be toggled from within the *toc* buffer with the \\`f' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
 (defcustom reftex-revisit-to-follow nil
-  "Non-nil means, follow-mode will revisit files if necessary.
-If nil, follow-mode will be suspended for stuff in unvisited files."
+  "Non-nil means, `follow-mode' will revisit files if necessary.
+If nil, `follow-mode' will be suspended for stuff in unvisited files."
   :group 'reftex-table-of-contents-browser
   :group 'reftex-referencing-labels
   :type 'boolean)
@@ -1208,7 +1209,7 @@ path."
   :type '(repeat (file)))
 
 (defcustom reftex-sort-bibtex-matches 'reverse-year
-  "Sorting of the entries found in BibTeX databases by reftex-citation.
+  "Sorting of the entries found in BibTeX databases by `reftex-citation'.
 Possible values:
 nil            Do not sort entries.
 `author'       Sort entries by author name.
@@ -1292,7 +1293,7 @@ prompt for values.  Possible values are:
 
 nil     Never prompt for optional arguments
 t       Always prompt
-maybe   Prompt only if `reftex-citation' was called with C-u prefix arg
+maybe   Prompt only if `reftex-citation' was called with \\[universal-argument] prefix arg
 
 Unnecessary empty optional arguments are removed before insertion into
 the buffer.  See `reftex-cite-cleanup-optional-args'."
@@ -1364,7 +1365,7 @@ should return the string to insert into the buffer."
   :type '(choice (const nil) function))
 
 (defcustom reftex-select-bib-mode-hook nil
-  "Mode hook for reftex-select-bib-mode."
+  "Mode hook for `reftex-select-bib-mode'."
   :group 'reftex-citation-support
   :type 'hook)
 
@@ -1626,14 +1627,14 @@ to that section."
 
 (defcustom reftex-index-include-context nil
   "Non-nil means, display the index definition context in the index buffer.
-This flag may also be toggled from the index buffer with the `c' key."
+This flag may also be toggled from the index buffer with the \\`c' key."
   :group 'reftex-index-support
   :type 'boolean)
 
 (defcustom reftex-index-follow-mode nil
   "Non-nil means, point in *Index* buffer will cause other window to follow.
 The other window will show the corresponding part of the document.
-This flag can be toggled from within the *Index* buffer with the `f' key."
+This flag can be toggled from within the *Index* buffer with the \\`f' key."
   :group 'reftex-table-of-contents-browser
   :type 'boolean)
 
@@ -1694,8 +1695,8 @@ entries and for BibTeX database files with live associated buffers."
   "Non-nil means, echoed information for cite macros is cached.
 The information displayed in the echo area for cite macros is
 cached and even saved along with the parsing information.  The
-cache survives document scans.  In order to clear it, use M-x
-reftex-reset-mode <RET>."
+cache survives document scans.  In order to clear it, use
+\\[reftex-reset-mode]."
   :group 'reftex-viewing-cross-references
   :type 'boolean)
 
@@ -1840,7 +1841,7 @@ upon the variable `reftex-initialize-temporary-buffers'."
 
 (defcustom reftex-initialize-temporary-buffers nil
   "Non-nil means do initializations even when visiting file temporarily.
-When nil, RefTeX may turn off find-file hooks and other stuff to briefly
+When nil, RefTeX may turn off `find-file' hooks and other stuff to briefly
 visit a file.
 When t, the full default initializations are done (find-file-hook etc.).
 Instead of t or nil, this variable may also be a list of hook functions to
@@ -1861,11 +1862,12 @@ of the regular expressions in this list, that file is not parsed by RefTeX."
 
 (defcustom reftex-enable-partial-scans nil
   "Non-nil means, re-parse only 1 file when asked to re-parse.
-Re-parsing is normally requested with a `C-u' prefix to many RefTeX commands,
-or with the `r' key in menus.  When this option is t in a multifile document,
+Re-parsing is normally requested with a \\[universal-argument] prefix to many RefTeX commands,
+or with the \\`r' key in menus.  When this option is t in a multifile document,
 we will only parse the current buffer, or the file associated with the label
 or section heading near point in a menu.  Requesting re-parsing of an entire
-multifile document then requires a `C-u C-u' prefix or the capital `R' key
+multifile document then requires a \\[universal-argument] \
+\\[universal-argument] prefix or the capital \\`R' key
 in menus."
   :group 'reftex-optimizations-for-large-documents
   :type 'boolean)
@@ -1911,7 +1913,7 @@ when new labels in its category are added.  See the variable
 When a new label is defined with `reftex-label', all selection buffers
 associated with that label category are emptied, in order to force an
 update upon next use.  When nil, the buffers are left alone and have to be
-updated by hand, with the `g' key from the label selection process.
+updated by hand, with the \\`g' key from the label selection process.
 The value of this variable will only have any effect when
 `reftex-use-multiple-selection-buffers' is non-nil."
   :group 'reftex-optimizations-for-large-documents
@@ -1963,7 +1965,7 @@ instead or as well.  The variable may have one of these values:
    both     Both cursor and mouse trigger highlighting.
 
 Changing this variable requires rebuilding the selection and *toc* buffers
-to become effective (keys `g' or `r')."
+to become effective (keys \\`g' or \\`r')."
   :group 'reftex-fontification-configurations
   :type '(choice
           (const :tag "Never" nil)

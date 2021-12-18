@@ -32,6 +32,11 @@
 (require 'help-fns)
 (require 'subr-x)
 
+;; Catch information for bug#50902.
+(when (getenv "EMACS_EMBA_CI")
+  (start-process-shell-command
+   "*timeout*" nil (format "sleep 60; kill -ABRT %d" (emacs-pid))))
+
 (defconst mod-test-emacs
   (expand-file-name invocation-name invocation-directory)
   "File name of the Emacs binary currently running.")
@@ -206,20 +211,6 @@ changes."
   (should (equal (help-function-arglist #'mod-test-sum)
                  '(arg1 arg2))))
 
-(defmacro module--with-temp-directory (name &rest body)
-  "Bind NAME to the name of a temporary directory and evaluate BODY.
-NAME must be a symbol.  Delete the temporary directory after BODY
-exits normally or non-locally.  NAME will be bound to the
-directory name (not the directory file name) of the temporary
-directory."
-  (declare (indent 1))
-  (cl-check-type name symbol)
-  `(let ((,name (file-name-as-directory
-                 (make-temp-file "emacs-module-test" :directory))))
-     (unwind-protect
-         (progn ,@body)
-       (delete-directory ,name :recursive))))
-
 (defmacro module--test-assertion (pattern &rest body)
   "Test that PATTERN matches the assertion triggered by BODY.
 Run Emacs as a subprocess, load the test module `mod-test-file',
@@ -228,7 +219,7 @@ assertion message that matches PATTERN.  PATTERN is evaluated and
 must evaluate to a regular expression string."
   (declare (indent 1))
   ;; To contain any core dumps.
-  `(module--with-temp-directory tempdir
+  `(ert-with-temp-directory tempdir
      (with-temp-buffer
        (let* ((default-directory tempdir)
               (status (call-process mod-test-emacs nil t nil
@@ -256,6 +247,7 @@ must evaluate to a regular expression string."
 
 (ert-deftest module--test-assertions--load-non-live-object ()
   "Check that -module-assertions verify that non-live objects aren't accessed."
+  :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
   (skip-unless (or (file-executable-p mod-test-emacs)
                    (and (eq system-type 'windows-nt)
                         (file-executable-p (concat mod-test-emacs ".exe")))))
@@ -274,6 +266,7 @@ must evaluate to a regular expression string."
 This differs from `module--test-assertions-load-non-live-object'
 in that it stows away a global reference.  The module assertions
 should nevertheless detect the invalid load."
+  :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
   (skip-unless (or (file-executable-p mod-test-emacs)
                    (and (eq system-type 'windows-nt)
                         (file-executable-p (concat mod-test-emacs ".exe")))))
@@ -290,6 +283,7 @@ should nevertheless detect the invalid load."
 (ert-deftest module--test-assertions--call-emacs-from-gc ()
   "Check that -module-assertions prevents calling Emacs functions
 during garbage collection."
+  :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
   (skip-unless (or (file-executable-p mod-test-emacs)
                    (and (eq system-type 'windows-nt)
                         (file-executable-p (concat mod-test-emacs ".exe")))))
@@ -301,7 +295,8 @@ during garbage collection."
 (ert-deftest module--test-assertions--globref-invalid-free ()
   "Check that -module-assertions detects invalid freeing of a
 local reference."
-    (skip-unless (or (file-executable-p mod-test-emacs)
+  :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
+  (skip-unless (or (file-executable-p mod-test-emacs)
                    (and (eq system-type 'windows-nt)
                         (file-executable-p (concat mod-test-emacs ".exe")))))
   (module--test-assertion
@@ -324,7 +319,9 @@ local reference."
 
 (mod-test-sum a b)
 
-Return A + B"
+Return A + B
+
+"
                        module-file-suffix))))))
 
 (ert-deftest module/load-history ()

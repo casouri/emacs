@@ -226,6 +226,7 @@ Value is:
  `w32' for an Emacs frame that is a window on MS-Windows display,
  `ns' for an Emacs frame on a GNUstep or Macintosh Cocoa display,
  `pc' for a direct-write MS-DOS frame.
+ `haiku' for an Emacs frame running in Haiku.
 See also `frame-live-p'.  */)
   (Lisp_Object object)
 {
@@ -244,6 +245,8 @@ See also `frame-live-p'.  */)
       return Qpc;
     case output_ns:
       return Qns;
+    case output_haiku:
+      return Qhaiku;
     default:
       emacs_abort ();
     }
@@ -729,7 +732,7 @@ adjust_frame_size (struct frame *f, int new_text_width, int new_text_height,
 	  && (f->new_width >= 0 || f->new_height >= 0))
 	/* For implied resizes with inhibit 2 (external menu and tool
 	   bar) pick up any new sizes the display engine has not
-	   processed yet.  Otherwsie, we would request the old sizes
+	   processed yet.  Otherwise, we would request the old sizes
 	   which will make this request appear as a request to set new
 	   sizes and have the WM react accordingly which is not TRT.
 
@@ -1017,6 +1020,10 @@ make_frame (bool mini_p)
 
   rw->total_lines = FRAME_LINES (f) - (mini_p ? 1 : 0);
   rw->pixel_height = rw->total_lines * FRAME_LINE_HEIGHT (f);
+
+  fset_face_hash_table
+    (f, make_hash_table (hashtest_eq, DEFAULT_HASH_SIZE, DEFAULT_REHASH_SIZE,
+                         DEFAULT_REHASH_THRESHOLD, Qnil, false));
 
   if (mini_p)
     {
@@ -1326,7 +1333,7 @@ affects all frames on the same terminal device.  */)
 {
   struct frame *f;
   struct terminal *t = NULL;
-  Lisp_Object frame, tem;
+  Lisp_Object frame;
   struct frame *sf = SELECTED_FRAME ();
 
 #ifdef MSDOS
@@ -1402,20 +1409,23 @@ affects all frames on the same terminal device.  */)
 		  (t->display_info.tty->name
 		   ? build_string (t->display_info.tty->name)
 		   : Qnil));
+
+  /* Make the frame face hash be frame-specific, so that each
+     frame could change its face definitions independently.  */
+  fset_face_hash_table (f, Fcopy_hash_table (sf->face_hash_table));
+  /* Simple copy_hash_table isn't enough, because we need the contents of
+     the vectors which are the values in face_hash_table to
+     be copied as well.  */
+  ptrdiff_t idx = 0;
+  struct Lisp_Hash_Table *table = XHASH_TABLE (f->face_hash_table);
+  for (idx = 0; idx < table->count; ++idx)
+    set_hash_value_slot (table, idx, Fcopy_sequence (HASH_VALUE (table, idx)));
+
   /* On terminal frames the `minibuffer' frame parameter is always
      virtually t.  Avoid that a different value in parms causes
      complaints, see Bug#24758.  */
   store_in_alist (&parms, Qminibuffer, Qt);
   Fmodify_frame_parameters (frame, parms);
-
-  /* Make the frame face alist be frame-specific, so that each
-     frame could change its face definitions independently.  */
-  fset_face_alist (f, Fcopy_alist (sf->face_alist));
-  /* Simple Fcopy_alist isn't enough, because we need the contents of
-     the vectors which are the CDRs of associations in face_alist to
-     be copied as well.  */
-  for (tem = f->face_alist; CONSP (tem); tem = XCDR (tem))
-    XSETCDR (XCAR (tem), Fcopy_sequence (XCDR (XCAR (tem))));
 
   f->can_set_window_size = true;
   f->after_make_frame = true;
@@ -1831,15 +1841,20 @@ prev_frame (Lisp_Object frame, Lisp_Object minibuf)
 
 DEFUN ("next-frame", Fnext_frame, Snext_frame, 0, 2, 0,
        doc: /* Return the next frame in the frame list after FRAME.
-It considers only frames on the same terminal as FRAME.
-By default, skip minibuffer-only frames.
-If omitted, FRAME defaults to the selected frame.
-If optional argument MINIFRAME is nil, exclude minibuffer-only frames.
-If MINIFRAME is a window, include only its own frame
-and any frame now using that window as the minibuffer.
-If MINIFRAME is `visible', include all visible frames.
-If MINIFRAME is 0, include all visible and iconified frames.
-Otherwise, include all frames.  */)
+Only frames on the same terminal as FRAME are included in the list
+of candidate frames.  If omitted, FRAME defaults to the selected frame.
+
+If MINIFRAME is nil (the default), include all frames except
+minibuffer-only frames.
+
+If MINIFRAME is a window, include only its own frame and any frame now
+using that window as the minibuffer.
+
+If MINIFRAME is `visible', include only visible frames.
+
+If MINIFRAME is 0, include only visible and iconified frames.
+
+If MINIFRAME is any other value, include all frames.  */)
   (Lisp_Object frame, Lisp_Object miniframe)
 {
   if (NILP (frame))
@@ -5016,8 +5031,6 @@ gui_set_no_special_glyphs (struct frame *f, Lisp_Object new_value, Lisp_Object o
 }
 
 
-#ifndef HAVE_NS
-
 /* Non-zero if mouse is grabbed on DPYINFO
    and we know the frame where it is.  */
 
@@ -5041,8 +5054,6 @@ gui_redo_mouse_highlight (Display_Info *dpyinfo)
 			  dpyinfo->last_mouse_motion_x,
 			  dpyinfo->last_mouse_motion_y);
 }
-
-#endif /* HAVE_NS */
 
 /* Subroutines of creating an X frame.  */
 
@@ -6012,6 +6023,7 @@ syms_of_frame (void)
   DEFSYM (Qw32, "w32");
   DEFSYM (Qpc, "pc");
   DEFSYM (Qns, "ns");
+  DEFSYM (Qhaiku, "haiku");
   DEFSYM (Qvisible, "visible");
   DEFSYM (Qbuffer_predicate, "buffer-predicate");
   DEFSYM (Qbuffer_list, "buffer-list");
@@ -6226,7 +6238,10 @@ when the mouse is over clickable text.  */);
 
   DEFVAR_LISP ("make-pointer-invisible", Vmake_pointer_invisible,
                doc: /* If non-nil, make mouse pointer invisible while typing.
-The pointer becomes visible again when the mouse is moved.  */);
+The pointer becomes visible again when the mouse is moved.
+
+When using this, you might also want to disable highlighting of
+clickable text.  See `mouse-highlight'.  */);
   Vmake_pointer_invisible = Qt;
 
   DEFVAR_LISP ("move-frame-functions", Vmove_frame_functions,

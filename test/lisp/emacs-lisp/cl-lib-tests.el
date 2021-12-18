@@ -353,13 +353,6 @@
   (should (= 5 (cl-fifth '(1 2 3 4 5 6))))
   (should-error (cl-fifth "12345") :type 'wrong-type-argument))
 
-(ert-deftest cl-lib-test-fifth ()
-  (should (null (cl-fifth '())))
-  (should (null (cl-fifth '(1 2 3 4))))
-  (should (= 5 (cl-fifth '(1 2 3 4 5))))
-  (should (= 5 (cl-fifth '(1 2 3 4 5 6))))
-  (should-error (cl-fifth "12345") :type 'wrong-type-argument))
-
 (ert-deftest cl-lib-test-sixth ()
   (should (null (cl-sixth '())))
   (should (null (cl-sixth '(1 2 3 4 5))))
@@ -416,22 +409,6 @@
   (should (null (cl-nth-value 1 1)))
   (should-error (cl-nth-value -1 (cl-values 2 3)) :type 'args-out-of-range)
   (should (string= (cl-nth-value 0 "only lists") "only lists")))
-
-(ert-deftest cl-test-caaar ()
-  (should (null (cl-caaar '())))
-  (should (null (cl-caaar '(() (2)))))
-  (should (null (cl-caaar '((() (2)) (a b)))))
-  (should-error (cl-caaar '(1 2)) :type 'wrong-type-argument)
-  (should-error (cl-caaar '((1 2))) :type 'wrong-type-argument)
-  (should (=  1 (cl-caaar '(((1 2) (3 4))))))
-  (should (null (cl-caaar '((() (3 4)))))))
-
-(ert-deftest cl-test-caadr ()
-  (should (null (cl-caadr '())))
-  (should (null (cl-caadr '(1))))
-  (should-error (cl-caadr '(1 2)) :type 'wrong-type-argument)
-  (should (= 2 (cl-caadr '(1 (2 3)))))
-  (should (equal '((2) (3)) (cl-caadr '((1) (((2) (3))) (4))))))
 
 (ert-deftest cl-test-ldiff ()
   (let ((l '(1 2 3)))
@@ -573,5 +550,10 @@
                       'cl-struct-foo-tags 'cl-struct-foo t)
     (should cl-old-struct-compat-mode)
     (cl-old-struct-compat-mode (if saved 1 -1))))
+
+(ert-deftest cl-constantly ()
+  (should (equal (mapcar (cl-constantly 3) '(a b c d))
+                 '(3 3 3 3))))
+
 
 ;;; cl-lib-tests.el ends here

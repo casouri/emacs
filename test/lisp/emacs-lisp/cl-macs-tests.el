@@ -529,7 +529,7 @@ collection clause."
   (should-error
    ;; Use `eval' so the error is signaled when running the test rather than
    ;; when macroexpanding it.
-   (eval '(let ((l (list 1))) (cl-symbol-macrolet ((x 1)) (setq (car l) 0)))))
+   (eval '(let ((l (list 1))) (cl-symbol-macrolet ((x 1)) (setq (car l) 0))) t))
   ;; Make sure `gv-synthetic-place' isn't macro-expanded before `setf' gets to
   ;; see its `gv-expander'.
   (should (equal (let ((l '(0)))
@@ -637,17 +637,26 @@ collection clause."
                        (/ 1 (logand n 1))
                      (arith-error (len3 (cdr xs) (1+ n)))
                      (:success (len3 (cdr xs) (+ n k))))
-                 n)))
+                 n))
+
+         ;; Tail calls in `cond'.
+         (len4 (xs n)
+           (cond (xs (cond (nil 'nevertrue)
+                           ((len4 (cdr xs) (1+ n)))))
+                 (t n))))
       (should (equal (len nil 0) 0))
       (should (equal (len2 nil 0) 0))
       (should (equal (len3 nil 0) 0))
+      (should (equal (len4 nil 0) 0))
       (should (equal (len list-42 0) 42))
       (should (equal (len2 list-42 0) 42))
       (should (equal (len3 list-42 0) 42))
+      (should (equal (len4 list-42 0) 42))
       ;; Should not bump into stack depth limits.
       (should (equal (len list-42k 0) 42000))
       (should (equal (len2 list-42k 0) 42000))
-      (should (equal (len3 list-42k 0) 42000))))
+      (should (equal (len3 list-42k 0) 42000))
+      (should (equal (len4 list-42k 0) 42000))))
 
   ;; Check that non-recursive functions are handled more efficiently.
   (should (pcase (macroexpand '(cl-labels ((f (x) (+ x 1))) (f 5)))
@@ -660,8 +669,12 @@ collection clause."
             (`(function (lambda (,_ ,_) . ,_)) t))))
 
 (ert-deftest cl-macs--progv ()
-  (should (= (cl-progv '(test test) '(1 2) test) 2))
-  (should (equal (cl-progv '(test1 test2) '(1 2) (list test1 test2))
+  (defvar cl-macs--test)
+  (defvar cl-macs--test1)
+  (defvar cl-macs--test2)
+  (should (= (cl-progv '(cl-macs--test cl-macs--test) '(1 2) cl-macs--test) 2))
+  (should (equal (cl-progv '(cl-macs--test1 cl-macs--test2) '(1 2)
+                   (list cl-macs--test1 cl-macs--test2))
                  '(1 2))))
 
 ;;; cl-macs-tests.el ends here

@@ -1,6 +1,6 @@
-# BidiCharacterTest-13.0.0.txt
-# Date: 2019-09-09, 19:32:00 GMT [LI]
-# © 2019 Unicode®, Inc.
+# BidiCharacterTest-14.0.0.txt
+# Date: 2020-03-30, 23:56:00 GMT [LI]
+# © 2020 Unicode®, Inc.
 # For terms of use, see http://www.unicode.org/terms_of_use.html
 #
 # Unicode Character Database
@@ -86,6 +86,32 @@
 05D0 0028 0332 05D1 0029 0333;0;0;1 1 1 1 1 1;5 4 3 2 1 0
 0661 0028 0662 0029 0331;0;0;2 1 2 1 1;4 3 2 1 0
 0661 0028 0332 0662 0029 0333;0;0;2 1 1 2 1 1;5 4 3 2 1 0
+
+# Nonspacing marks applied to paired brackets [added to test cases for Unicode 14.0]
+# These cases exercise the ignoring of bc=BN characters (such as ZWJ or ZWSP)
+# that appear between the base bracket character and the nonspacing mark,
+# in a context where the brackets have been forced to a strong R direction.
+#
+# Note that due to an implementation error in the N0 rule in the Bidi Reference C
+# test code for UBA 8.0, versions of that reference test code through UBA 12.0 will fail for
+# precisely these newly added tests. The bug in the implementation of the N0 rule in the Bidi Reference C
+# test code was fixed for Unicode 13.0, and that updated test code now performs correctly
+# for all versions of UBA.
+#
+# These test cases first test a combining mark following a ZWJ after the trailing bracket of a pair:
+0041 200F 005B 05D0 005D 200D 20D6;0;0;0 1 1 1 1 x 1;0 6 4 3 2 1
+0041 200F 005B 05D0 005D 200D 20D6;1;1;2 1 1 1 1 x 1;6 4 3 2 1 0
+# Then a combining mark following a ZWJ after the leading bracket of a pair:
+0041 200F 005B 200D 20D6 05D0 005D;0;0;0 1 1 x 1 1 1;0 6 5 4 2 1
+0041 200F 005B 200D 20D6 05D0 005D;1;1;2 1 1 x 1 1 1;6 5 4 2 1 0
+# Then a combining mark following a ZWJ after both brackets of a pair:
+0041 200F 005B 200D 20D6 05D0 005D 200D 20D6;0;0;0 1 1 x 1 1 1 x 1;0 8 6 5 4 2 1
+0041 200F 005B 200D 20D6 05D0 005D 200D 20D6;1;1;2 1 1 x 1 1 1 x 1;8 6 5 4 2 1 0
+# Then the intervention of a ZWSP in these same sequences.
+# (The ZWSP formally breaks the combining character sequence, but should
+# not block the identification of the combining mark for the application of rule N0.)
+0041 200F 005B 200D 200B 20D6 05D0 005D 200B 200D 20D6;0;0;0 1 1 x x 1 1 1 x x 1;0 10 7 6 5 2 1
+0041 200F 005B 200D 200B 20D6 05D0 005D 200B 200D 20D6;1;1;2 1 1 x x 1 1 1 x x 1;10 7 6 5 2 1 0
 
 # Nested bracket pairs that reach and exceed the fixed capacity of the bracket stack
 # a ( ( ... ( b ) ) ... ) with 62, 63, and 64 nested bracket pairs

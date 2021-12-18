@@ -45,7 +45,7 @@
 ;; Variables
 
 (defgroup erc-networks nil
-  "IRC Networks"
+  "IRC Networks."
   :group 'erc)
 
 (defcustom erc-server-alist
@@ -290,6 +290,13 @@
   ("LagNet: Random server" LagNet "irc.lagnet.org.za" 6667)
   ("LagNet: AF, ZA, Cape Town" LagNet "reaper.lagnet.org.za" 6667)
   ("LagNet: AF, ZA, Johannesburg" LagNet "mystery.lagnet.org.za" 6667)
+  ("Libera.Chat: Random server" Libera.Chat "irc.libera.chat" 6667)
+  ("Libera.Chat: Random Europe server" Libera.Chat "irc.eu.libera.chat" 6667)
+  ("Libera.Chat: Random US & Canada server" Libera.Chat "irc.us.libera.chat" 6667)
+  ("Libera.Chat: Random Australia & New Zealand server" Libera.Chat "irc.au.libera.chat" 6667)
+  ("Libera.Chat: Random East Asia server" Libera.Chat "irc.ea.libera.chat" 6667)
+  ("Libera.Chat: IPv4 only server" Libera.Chat "irc.ipv4.libera.chat" 6667)
+  ("Libera.Chat: IPv6 only server" Libera.Chat "irc.ipv6.libera.chat" 6667)
   ("Librenet: Random server" Librenet "irc.librenet.net" 6667)
   ("LinkNet: Random server" LinkNet "irc.link-net.org" ((6667 6669)))
   ("LinuxChix: Random server" LinuxChix "irc.linuxchix.org" 6667)
@@ -594,6 +601,7 @@ PORTS is either a number, a list of numbers, or a list of port ranges."
     (Krono "krono.net")
     (Krushnet "krushnet.org")
     (LagNet "lagnet.org.za")
+    (Libera.Chat "libera.chat")
     (Librenet "librenet.net")
     (LinkNet "link-net.org")
     (LinuxChix "cats\\.meow\\.at\\|linuxchix\\.org")
@@ -712,7 +720,7 @@ NET is a symbol naming that IRC network and
 MATCHER is used to find a corresponding network to a server while
   connected to it.  If it is regexp, it's used to match against
   `erc-server-announced-name'.  It can also be a function (predicate).
-  Then it is executed with the server buffer as current-buffer."
+  Then it is executed with the server buffer as current buffer."
   :type '(repeat
 	  (list :tag "Network"
 		(symbol :tag "Network name")
@@ -746,15 +754,6 @@ server name and search for a match in `erc-networks-alist'."
 (defun erc-network ()
   "Return the value of `erc-network' for the current server."
   (erc-with-server-buffer erc-network))
-
-(defun erc-current-network ()
-  "Deprecated.  Use `erc-network' instead.
-Return the name of this server's network as a symbol."
-  (erc-with-server-buffer
-    (intern (downcase (symbol-name erc-network)))))
-
-(make-obsolete 'erc-current-network 'erc-network
-               "Obsolete since erc-networks 1.5")
 
 (defun erc-network-name ()
   "Return the name of the current network as a string."
@@ -825,7 +824,7 @@ As an example:
 	 (ports (if (listp (nth 3 srv))
 		    (erc-ports-list (nth 3 srv))
 		  (list (nth 3 srv))))
-	 (port (nth (random (length ports)) ports)))
+         (port (and ports (seq-random-elt ports))))
     (erc :server host :port port)))
 
 ;;; The following experimental
@@ -833,8 +832,8 @@ As an example:
 ;; think it is worth the effort.
 
 (defvar erc-settings
-  '((pals freenode ("kensanata" "shapr" "anti\\(fuchs\\|gone\\)"))
-    (format-nick-function (freenode "#emacs") erc-format-@nick))
+  '((pals Libera.Chat ("kensanata" "shapr" "anti\\(fuchs\\|gone\\)"))
+    (format-nick-function (Libera.Chat "#emacs") erc-format-@nick))
   "Experimental: Alist of configuration options.
 The format is (VARNAME SCOPE VALUE) where
 VARNAME is a symbol identifying the configuration option,
@@ -863,7 +862,7 @@ VALUE is the options value.")
 		     items nil)))))
     val))
 
-(erc-get 'pals 'freenode)
+(erc-get 'pals 'Libera.Chat)
 
 (provide 'erc-networks)
 

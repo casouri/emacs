@@ -102,12 +102,17 @@ HAVE_NATIVE_COMP = @HAVE_NATIVE_COMP@
 
 USE_STARTUP_NOTIFICATION = @USE_STARTUP_NOTIFICATION@
 
+HAVE_BE_APP = @HAVE_BE_APP@
+
 # ==================== Where To Install Things ====================
 
 # Location to install Emacs.app under GNUstep / macOS.
 # Later values may use these.
+ns_appdir=@ns_appdir@
 ns_appbindir=@ns_appbindir@
+ns_applibexecdir=@ns_applibexecdir@
 ns_appresdir=@ns_appresdir@
+ns_applibdir=@ns_applibdir@
 # Either yes or no depending on whether this is a relocatable Emacs.app.
 ns_self_contained=@ns_self_contained@
 
@@ -282,10 +287,16 @@ use_gamedir=$(gameuser)$(gamegroup)
 # not use an absolute path.  So we must take care to always run
 # INSTALL-type commands from the directory containing the Makefile.
 # This explains (I think) the cd thisdir seen in several install rules.
+SYSTEM_TYPE = @SYSTEM_TYPE@
 INSTALL = @INSTALL@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_INFO = @INSTALL_INFO@
+ifeq ($(SYSTEM_TYPE),cygwin)
+  INSTALL_ELN = $(INSTALL)
+else
+  INSTALL_ELN = $(INSTALL_DATA)
+endif
 # By default, we uphold the dignity of our programs.
 INSTALL_STRIP =
 MKDIR_P = @MKDIR_P@
@@ -304,6 +315,7 @@ TRANSFORM = @program_transform_name@
 EMACS_NAME = `echo emacs | sed '$(TRANSFORM)'`
 EMACS = ${EMACS_NAME}${EXEEXT}
 EMACSFULL = `echo emacs-${version} | sed '$(TRANSFORM)'`${EXEEXT}
+EMACS_PDMP = `./src/emacs${EXEEXT} --fingerprint`.pdmp
 
 # Subdirectories to make recursively.
 SUBDIR = $(NTDIR) lib lib-src src lisp
@@ -330,12 +342,12 @@ BIN_DESTDIR='$(DESTDIR)${bindir}/'
 ELN_DESTDIR = $(DESTDIR)${libdir}/emacs/${version}/
 else
 BIN_DESTDIR='${ns_appbindir}/'
-ELN_DESTDIR = ${ns_appresdir}/
+ELN_DESTDIR = ${ns_applibdir}/
 endif
 
 all: ${SUBDIR} info
 
-.PHONY: all ${SUBDIR} blessmail epaths-force epaths-force-w32 etc-emacsver
+.PHONY: all ${SUBDIR} blessmail epaths-force epaths-force-w32 epaths-force-ns-self-contained etc-emacsver
 
 # If configure were to just generate emacsver.tex from emacsver.tex.in
 # in the normal way, the timestamp of emacsver.tex would always be
@@ -403,6 +415,21 @@ epaths-force-w32:
 	  -e '/^.*#/s/@CFG@/${configuration}/g' 		\
 	  -e "/^.*#/s|@SRC@|$${w32srcdir}|g") &&		\
 	${srcdir}/build-aux/move-if-change epaths.h.$$$$ src/epaths.h
+
+# A NextStep style app bundle is relocatable, so instead of
+# hard-coding paths try to generate them at run-time.
+#
+# The paths are mostly the same, and the bundle paths are different
+# between macOS and GNUstep, so just replace any references to the app
+# bundle root itself with the relative path.
+epaths-force-ns-self-contained: epaths-force
+	@(sed < src/epaths.h > epaths.h.$$$$		\
+	  -e 's;${ns_appdir}/;;') &&			\
+	${srcdir}/build-aux/move-if-change epaths.h.$$$$ src/epaths.h
+
+ifneq ($(NTDIR),)
+$(NTDIR): lib
+endif
 
 lib-src src: $(NTDIR) lib
 
@@ -500,8 +527,14 @@ install-arch-dep: src install-arch-indep install-etcdoc install-$(NTDIR)
 	$(MAKE) -C lib-src install
 ifeq (${ns_self_contained},no)
 	${INSTALL_PROGRAM} $(INSTALL_STRIP) src/emacs${EXEEXT} "$(DESTDIR)${bindir}/$(EMACSFULL)"
+ifeq (${HAVE_BE_APP},yes)
+	${INSTALL_PROGRAM} $(INSTALL_STRIP) src/Emacs "$(DESTDIR)${prefix}/apps/Emacs"
+endif
 ifeq (${DUMPING},pdumper)
-	${INSTALL_DATA} src/emacs.pdmp "$(DESTDIR)${libexecdir}/emacs/${version}/${configuration}"/emacs.pdmp
+ifeq (${HAVE_BE_APP},yes)
+	${INSTALL_DATA} src/Emacs.pdmp "$(DESTDIR)${libexecdir}/emacs/${version}/${configuration}"/Emacs.pdmp
+endif
+	${INSTALL_DATA} src/emacs.pdmp "$(DESTDIR)${libexecdir}/emacs/${version}/${configuration}"/emacs-${EMACS_PDMP}
 endif
 	-chmod 755 "$(DESTDIR)${bindir}/$(EMACSFULL)"
 ifndef NO_BIN_LINK
@@ -728,6 +761,19 @@ install-etc:
 	  ${srcdir}/etc/emacsclient.desktop > $${tmp}; \
 	${INSTALL_DATA} $${tmp} "$(DESTDIR)${desktopdir}/$${client_name}.desktop"; \
 	rm -f $${tmp}
+	tmp=etc/emacs-mail.tmpdesktop; rm -f $${tmp}; \
+	sed -e "/^Exec=emacs/ s/emacs/${EMACS_NAME}/" \
+	  -e "/^Icon=emacs/ s/emacs/${EMACS_NAME}/" \
+	  ${srcdir}/etc/emacs-mail.desktop > $${tmp}; \
+	${INSTALL_DATA} $${tmp} "$(DESTDIR)${desktopdir}/${EMACS_NAME}-mail.desktop"; \
+	rm -f $${tmp}
+	tmp=etc/emacsclient-mail.tmpdesktop; rm -f $${tmp}; \
+	client_name=`echo emacsclient | sed '$(TRANSFORM)'`${EXEEXT}; \
+	sed -e "/^Exec=emacsclient/ s|emacsclient|${bindir}/$${client_name}|" \
+	  -e "/^Icon=emacs/ s/emacs/${EMACS_NAME}/" \
+	  ${srcdir}/etc/emacsclient-mail.desktop > $${tmp}; \
+	${INSTALL_DATA} $${tmp} "$(DESTDIR)${desktopdir}/$${client_name}-mail.desktop"; \
+	rm -f $${tmp}
 	umask 022; ${MKDIR_P} "$(DESTDIR)${metainfodir}"
 	tmp=etc/emacs.tmpmetainfo; rm -f $${tmp}; \
 	sed -e "s/emacs\.desktop/${EMACS_NAME}.desktop/" \
@@ -762,8 +808,9 @@ install-etc:
 ### Install native compiled Lisp files.
 install-eln: lisp
 ifeq ($(HAVE_NATIVE_COMP),yes)
+	umask 022 ; \
 	find native-lisp -type d -exec $(MKDIR_P) "$(ELN_DESTDIR){}" \; ; \
-	find native-lisp -type f -exec ${INSTALL_DATA} "{}" "$(ELN_DESTDIR){}" \;
+	find native-lisp -type f -exec ${INSTALL_ELN} "{}" "$(ELN_DESTDIR){}" \;
 endif
 
 ### Build Emacs and install it, stripping binaries while installing them.
@@ -1102,14 +1149,23 @@ check-info: info
 
 .PHONY: bootstrap
 
-# Bootstrapping does the following:
+# Without a 'configure' variable, bootstrapping does the following:
 #  * Remove files to start from a bootstrap-clean slate.
 #  * Run autogen.sh.
 #  * Rebuild Makefile, to update the build procedure itself.
 #  * Do the actual build.
-bootstrap: bootstrap-clean
+# With a 'configure' variable, bootstrapping does the following:
+#  * Remove files to start from an extraclean slate.
+#  * Do the actual build, during which the 'configure' variable is
+#    used (see the Makefile goal in GNUmakefile).
+bootstrap:
+ifndef configure
+	$(MAKE) bootstrap-clean
 	cd $(srcdir) && ./autogen.sh autoconf
 	$(MAKE) MAKEFILE_NAME=force-Makefile force-Makefile
+else
+	$(MAKE) extraclean
+endif
 	$(MAKE) all
 
 .PHONY: ChangeLog change-history change-history-commit change-history-nocommit
@@ -1130,7 +1186,7 @@ ChangeLog:
 	  ./$(emacslog) -o $(CHANGELOG) -n $(CHANGELOG_HISTORY_INDEX_MAX)
 
 # Check that we are in a good state for changing history.
-PREFERRED_BRANCH = emacs-27
+PREFERRED_BRANCH = emacs-28
 preferred-branch-is-current:
 	git branch | grep -q '^\* $(PREFERRED_BRANCH)$$'
 unchanged-history-files:

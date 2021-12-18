@@ -207,8 +207,7 @@ or `-k' to enable Kerberos authentication."
 
 (defvar rmail-remote-password-error "invalid usercode or password\\|
 unknown user name or bad password\\|Authentication failed\\|MU_ERR_AUTH_FAILURE"
-  "Regular expression matching incorrect-password POP or IMAP server error
-messages.
+  "Regexp matching incorrect-password POP or IMAP server error messages.
 If you get an incorrect-password error that this expression does not match,
 please report it with \\[report-emacs-bug].")
 
@@ -1960,7 +1959,7 @@ Value is the size of the newly read mail after conversion."
 			    (file-name-nondirectory
 			     (if (memq system-type '(windows-nt cygwin ms-dos))
 				 ;; cannot have colons in file name
-				 (replace-regexp-in-string ":" "-" file)
+				 (string-replace ":" "-" file)
 			       file)))
 		    ;; Use the directory of this rmail file
 		    ;; because it's a nuisance to use the homedir
@@ -3374,7 +3373,7 @@ The idea is to match it against simplified subjects of other messages."
     ;; Hide commas so it will work ok if parsed as a comma-separated list
     ;; of regexps.
     (setq subject
-	  (replace-regexp-in-string "," "\054" subject t t))
+	  (string-replace "," "\054" subject))
     (concat "\\`" subject "\\'")))
 
 (defun rmail-next-same-subject (n)
@@ -4126,10 +4125,8 @@ typically for purposes of moderating a list."
   "A regexp that matches the separator before the text of a failed message.")
 
 (defvar mail-mime-unsent-header "^Content-Type: message/rfc822 *$"
- "A regexp that matches the header of a MIME body part with a failed message.")
+  "A regexp that matches the header of a MIME body part with a failed message.")
 
-;; This is a cut-down version of rmail-clear-headers from Emacs 22.
-;; It doesn't have the same functionality, hence the name change.
 (defun rmail-delete-headers (regexp)
   "Delete any mail headers matching REGEXP.
 The message should be narrowed to just the headers."
@@ -4137,10 +4134,6 @@ The message should be narrowed to just the headers."
     (goto-char (point-min))
     (while (re-search-forward regexp nil t)
       (beginning-of-line)
-      ;; This code from Emacs 22 doesn't seem right, since r-n-h is
-      ;; just for display.
-;;;      (if (looking-at rmail-nonignored-headers)
-;;;	  (forward-line 1)
       (delete-region (point)
 		     (save-excursion
 		       (if (re-search-forward "\n[^ \t]" nil t)
@@ -4483,7 +4476,7 @@ TEXT and INDENT are not used."
 
 (defun rmail-get-remote-password (imap user host)
   "Get the password for retrieving mail from a POP or IMAP server.
-If none has been set, the password is found via auth-source. If
+If none has been set, the password is found via auth-source.  If
 you use ~/.authinfo as your auth-source backend, then put
 something like the following in that file:
 

@@ -312,14 +312,15 @@ dump_reloc_set_offset (struct dump_reloc *reloc, dump_off offset)
     error ("dump relocation out of range");
 }
 
-static void
-dump_fingerprint (char const *label,
+void
+dump_fingerprint (FILE *output, char const *label,
 		  unsigned char const xfingerprint[sizeof fingerprint])
 {
   enum { hexbuf_size = 2 * sizeof fingerprint };
   char hexbuf[hexbuf_size];
   hexbuf_digest (hexbuf, xfingerprint, sizeof fingerprint);
-  fprintf (stderr, "%s: %.*s\n", label, hexbuf_size, hexbuf);
+  fprintf (output, "%s%s%.*s\n", label, *label ? ": " : "",
+	   hexbuf_size, hexbuf);
 }
 
 /* To be used if some order in the relocation process has to be enforced. */
@@ -799,31 +800,13 @@ dump_tailq_length (const struct dump_tailq *tailq)
   return tailq->length;
 }
 
-static void ATTRIBUTE_UNUSED
+static void
 dump_tailq_prepend (struct dump_tailq *tailq, Lisp_Object value)
 {
   Lisp_Object link = Fcons (value, tailq->head);
   tailq->head = link;
   if (NILP (tailq->tail))
     tailq->tail = link;
-  tailq->length += 1;
-}
-
-static void ATTRIBUTE_UNUSED
-dump_tailq_append (struct dump_tailq *tailq, Lisp_Object value)
-{
-  Lisp_Object link = Fcons (value, Qnil);
-  if (NILP (tailq->head))
-    {
-      eassert (NILP (tailq->tail));
-      tailq->head = tailq->tail = link;
-    }
-  else
-    {
-      eassert (!NILP (tailq->tail));
-      XSETCDR (tailq->tail, link);
-      tailq->tail = link;
-    }
   tailq->length += 1;
 }
 
@@ -2871,19 +2854,24 @@ dump_bool_vector (struct dump_context *ctx, const struct Lisp_Vector *v)
 static dump_off
 dump_subr (struct dump_context *ctx, const struct Lisp_Subr *subr)
 {
-#if CHECK_STRUCTS && !defined (HASH_Lisp_Subr_AA236F7759)
+#if CHECK_STRUCTS && !defined (HASH_Lisp_Subr_F09D8E8E19)
 # error "Lisp_Subr changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct Lisp_Subr out;
   dump_object_start (ctx, &out, sizeof (out));
   DUMP_FIELD_COPY (&out, subr, header.size);
-  if (NATIVE_COMP_FLAG && !NILP (subr->native_comp_u[0]))
+#ifdef HAVE_NATIVE_COMP
+  bool native_comp = !NILP (subr->native_comp_u);
+#else
+  bool native_comp = false;
+#endif
+  if (native_comp)
     out.function.a0 = NULL;
   else
     dump_field_emacs_ptr (ctx, &out, subr, &subr->function.a0);
   DUMP_FIELD_COPY (&out, subr, min_args);
   DUMP_FIELD_COPY (&out, subr, max_args);
-  if (NATIVE_COMP_FLAG && !NILP (subr->native_comp_u[0]))
+  if (native_comp)
     {
       dump_field_fixup_later (ctx, &out, subr, &subr->symbol_name);
       dump_remember_cold_op (ctx,
@@ -2897,19 +2885,16 @@ dump_subr (struct dump_context *ctx, const struct Lisp_Subr *subr)
       dump_field_emacs_ptr (ctx, &out, subr, &subr->intspec);
     }
   DUMP_FIELD_COPY (&out, subr, doc);
-  if (NATIVE_COMP_FLAG)
-    {
-      dump_field_lv (ctx, &out, subr, &subr->native_comp_u[0], WEIGHT_NORMAL);
-      if (!NILP (subr->native_comp_u[0]))
-	dump_field_fixup_later (ctx, &out, subr, &subr->native_c_name[0]);
+#ifdef HAVE_NATIVE_COMP
+  dump_field_lv (ctx, &out, subr, &subr->native_comp_u, WEIGHT_NORMAL);
+  if (!NILP (subr->native_comp_u))
+    dump_field_fixup_later (ctx, &out, subr, &subr->native_c_name);
 
-      dump_field_lv (ctx, &out, subr, &subr->lambda_list[0], WEIGHT_NORMAL);
-      dump_field_lv (ctx, &out, subr, &subr->type[0], WEIGHT_NORMAL);
-    }
+  dump_field_lv (ctx, &out, subr, &subr->lambda_list, WEIGHT_NORMAL);
+  dump_field_lv (ctx, &out, subr, &subr->type, WEIGHT_NORMAL);
+#endif
   dump_off subr_off = dump_object_finish (ctx, &out, sizeof (out));
-  if (NATIVE_COMP_FLAG
-      && ctx->flags.dump_object_contents
-      && !NILP (subr->native_comp_u[0]))
+  if (native_comp && ctx->flags.dump_object_contents)
     /* We'll do the final addr relocation during VERY_LATE_RELOCS time
        after the compilation units has been loaded. */
     dump_push (&ctx->dump_relocs[VERY_LATE_RELOCS],
@@ -2963,7 +2948,7 @@ dump_vectorlike (struct dump_context *ctx,
                  Lisp_Object lv,
                  dump_off offset)
 {
-#if CHECK_STRUCTS && !defined HASH_pvec_type_F5BA506141
+#if CHECK_STRUCTS && !defined HASH_pvec_type_19F6CF5169
 # error "pvec_type changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Vector *v = XVECTOR (lv);
@@ -3043,6 +3028,8 @@ dump_vectorlike (struct dump_context *ctx,
       error_unsupported_dump_object (ctx, lv, "mutex");
     case PVEC_CONDVAR:
       error_unsupported_dump_object (ctx, lv, "condvar");
+    case PVEC_SQLITE:
+      error_unsupported_dump_object (ctx, lv, "sqlite");
     case PVEC_MODULE_FUNCTION:
       error_unsupported_dump_object (ctx, lv, "module function");
     default:
@@ -3439,9 +3426,9 @@ dump_cold_native_subr (struct dump_context *ctx, Lisp_Object subr)
 
   dump_remember_fixup_ptr_raw
     (ctx,
-     subr_offset + dump_offsetof (struct Lisp_Subr, native_c_name[0]),
+     subr_offset + dump_offsetof (struct Lisp_Subr, native_c_name),
      ctx->offset);
-  const char *c_name = XSUBR (subr)->native_c_name[0];
+  const char *c_name = XSUBR (subr)->native_c_name;
   dump_write (ctx, c_name, 1 + strlen (c_name));
 }
 #endif
@@ -4145,7 +4132,7 @@ types.  */)
     ctx->header.fingerprint[i] = fingerprint[i];
 
   const dump_off header_start = ctx->offset;
-  dump_fingerprint ("Dumping fingerprint", ctx->header.fingerprint);
+  dump_fingerprint (stderr, "Dumping fingerprint", ctx->header.fingerprint);
   dump_write (ctx, &ctx->header, sizeof (ctx->header));
   const dump_off header_end = ctx->offset;
 
@@ -4537,15 +4524,28 @@ dump_map_file_w32 (void *base, int fd, off_t offset, size_t size,
   uint32_t offset_low = (uint32_t) (full_offset & 0xffffffff);
 
   int error;
+  DWORD protect;
   DWORD map_access;
 
   file = (HANDLE) _get_osfhandle (fd);
   if (file == INVALID_HANDLE_VALUE)
     goto out;
 
+  switch (protection)
+    {
+    case DUMP_MEMORY_ACCESS_READWRITE:
+      protect = PAGE_WRITECOPY;	/* for Windows 9X */
+      break;
+    default:
+    case DUMP_MEMORY_ACCESS_NONE:
+    case DUMP_MEMORY_ACCESS_READ:
+      protect = PAGE_READONLY;
+      break;
+    }
+
   section = CreateFileMapping (file,
 			       /*lpAttributes=*/NULL,
-			       PAGE_READONLY,
+			       protect,
 			       /*dwMaximumSizeHigh=*/0,
 			       /*dwMaximumSizeLow=*/0,
 			       /*lpName=*/NULL);
@@ -5300,6 +5300,9 @@ dump_do_dump_relocation (const uintptr_t dump_base,
 	  error ("Trying to load incoherent dumped eln file %s",
 		 SSDATA (comp_u->file));
 
+	if (!CONSP (comp_u->file))
+	  error ("Incoherent compilation unit for dump was dumped");
+
 	/* emacs_execdir is always unibyte, but the file names in
 	   comp_u->file could be multibyte, so we need to encode
 	   them.  */
@@ -5362,20 +5365,16 @@ dump_do_dump_relocation (const uintptr_t dump_base,
       }
     case RELOC_NATIVE_SUBR:
       {
-	if (!NATIVE_COMP_FLAG)
-	  /* This cannot happen.  */
-	  emacs_abort ();
-
 	/* When resurrecting from a dump given non all the original
 	   native compiled subrs may be still around we can't rely on
 	   a 'top_level_run' mechanism, we revive them one-by-one
 	   here.  */
 	struct Lisp_Subr *subr = dump_ptr (dump_base, reloc_offset);
 	struct Lisp_Native_Comp_Unit *comp_u =
-	  XNATIVE_COMP_UNIT (subr->native_comp_u[0]);
+	  XNATIVE_COMP_UNIT (subr->native_comp_u);
 	if (!comp_u->handle)
 	  error ("NULL handle in compilation unit %s", SSDATA (comp_u->file));
-	const char *c_name = subr->native_c_name[0];
+	const char *c_name = subr->native_c_name;
 	eassert (c_name);
 	void *func = dynlib_sym (comp_u->handle, c_name);
 	if (!func)
@@ -5601,8 +5600,8 @@ pdumper_load (const char *dump_filename, char *argv0)
     desired[i] = fingerprint[i];
   if (memcmp (header->fingerprint, desired, sizeof desired) != 0)
     {
-      dump_fingerprint ("desired fingerprint", desired);
-      dump_fingerprint ("found fingerprint", header->fingerprint);
+      dump_fingerprint (stderr, "desired fingerprint", desired);
+      dump_fingerprint (stderr, "found fingerprint", header->fingerprint);
       goto out;
     }
 
@@ -5710,6 +5709,7 @@ pdumper_load (const char *dump_filename, char *argv0)
     dump_mmap_release (&sections[i]);
   if (dump_fd >= 0)
     emacs_close (dump_fd);
+
   return err;
 }
 
@@ -5794,6 +5794,7 @@ syms_of_pdumper (void)
   DEFSYM (Qdumped_with_pdumper, "dumped-with-pdumper");
   DEFSYM (Qload_time, "load-time");
   DEFSYM (Qdump_file_name, "dump-file-name");
+  DEFSYM (Qafter_pdump_load_hook, "after-pdump-load-hook");
   defsubr (&Spdumper_stats);
 #endif /* HAVE_PDUMPER */
 }

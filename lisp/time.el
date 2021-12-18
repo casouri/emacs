@@ -205,7 +205,8 @@ depend on `display-time-day-and-date' and `display-time-24hr-format'."
 	  'mouse-face 'mode-line-highlight
 	  'local-map (make-mode-line-mouse-map 'mouse-2
 					       read-mail-command)))
-      ""))
+      "")
+    " ")
   "List of expressions governing display of the time in the mode line.
 For most purposes, you can control the time format using `display-time-format'
 which is a more standard interface.
@@ -339,10 +340,10 @@ Switches from the 1 to 5 to 15 minute load average, and then back to 1."
                        (float-time end-time))))))))))
 
 (defun display-time-update ()
-  "Update the display-time info for the mode line.
+  "Update the `display-time' info for the mode line.
 However, don't redisplay right now.
 
-This is used for things like Rmail `g' that want to force an
+This is used for things like Rmail \\`g' that want to force an
 update which can wait for the next redisplay."
   (let* ((now (current-time))
          (time (current-time-string now))
@@ -525,11 +526,9 @@ If the value is t instead of an alist, use the value of
   '((t :inherit font-lock-variable-name-face))
   "Face for time zone label in `world-clock' buffer.")
 
-(defvar world-clock-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "n" #'next-line)
-    (define-key map "p" #'previous-line)
-    map))
+(defvar-keymap world-clock-mode-map
+  "n" #'next-line
+  "p" #'previous-line)
 
 (define-derived-mode world-clock-mode special-mode "World clock"
   "Major mode for buffer that displays times in various time zones.
@@ -625,7 +624,7 @@ point."
 ;;;###autoload
 (defun emacs-init-time (&optional format)
   "Return a string giving the duration of the Emacs initialization.
-FORMAT is a string to format the result, using `format'. If nil,
+FORMAT is a string to format the result, using `format'.  If nil,
 the default format \"%f seconds\" is used."
   (interactive)
   (let ((str (format (or format "%f seconds")

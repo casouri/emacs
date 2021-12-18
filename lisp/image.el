@@ -27,6 +27,8 @@
 
 (defgroup image ()
   "Image support."
+  :prefix "image-"
+  :link '(info-link "(emacs) Image Mode")
   :group 'multimedia)
 
 (declare-function image-flush "image.c" (spec &optional frame))
@@ -48,6 +50,7 @@ static \\(unsigned \\)?char \\1_bits" . xbm)
     ("\\`\\(?:MM\0\\*\\|II\\*\0\\)" . tiff)
     ("\\`[\t\n\r ]*%!PS" . postscript)
     ("\\`\xff\xd8" . jpeg)    ; used to be (image-jpeg-p . jpeg)
+    ("\\`RIFF....WEBPVP8" . webp)
     (,(let* ((incomment-re "\\(?:[^-]\\|-[^-]\\)")
 	     (comment-re (concat "\\(?:!--" incomment-re "*-->[ \t\r\n]*<\\)")))
 	(concat "\\(?:<\\?xml[ \t\r\n]+[^>]*>\\)?[ \t\r\n]*<"
@@ -67,6 +70,7 @@ a non-nil value, TYPE is the image's type.")
   '(("\\.png\\'" . png)
     ("\\.gif\\'" . gif)
     ("\\.jpe?g\\'" . jpeg)
+    ("\\.webp\\'" . webp)
     ("\\.bmp\\'" . bmp)
     ("\\.xpm\\'" . xpm)
     ("\\.pbm\\'" . pbm)
@@ -92,6 +96,7 @@ be of image type IMAGE-TYPE.")
     (jpeg . maybe)
     (tiff . maybe)
     (svg . maybe)
+    (webp . maybe)
     (postscript . nil))
   "Alist of (IMAGE-TYPE . AUTODETECT) pairs used to auto-detect image files.
 \(See `image-type-auto-detected-p').
@@ -556,7 +561,12 @@ If VALUE is nil, PROPERTY is removed from IMAGE."
   (declare (gv-setter image--set-property))
   (plist-get (cdr image) property))
 
-(defun image-compute-scaling-factor (scaling)
+(defun image-compute-scaling-factor (&optional scaling)
+  "Compute the scaling factor based on SCALING.
+If a number, use that.  If it's `auto', compute the factor.
+If nil, use the `image-scaling-factor' variable."
+  (unless scaling
+    (setq scaling image-scaling-factor))
   (cond
    ((numberp scaling) scaling)
    ((eq scaling 'auto)
@@ -600,7 +610,7 @@ means display it in the right marginal area."
 
 
 ;;;###autoload
-(defun insert-image (image &optional string area slice)
+(defun insert-image (image &optional string area slice inhibit-isearch)
   "Insert IMAGE into current buffer at point.
 IMAGE is displayed by inserting STRING into the current buffer
 with a `display' property whose value is the image.
@@ -617,7 +627,11 @@ SLICE specifies slice of IMAGE to insert.  SLICE nil or omitted
 means insert whole image.  SLICE is a list (X Y WIDTH HEIGHT)
 specifying the X and Y positions and WIDTH and HEIGHT of image area
 to insert.  A float value 0.0 - 1.0 means relative to the width or
-height of the image; integer values are taken as pixel values."
+height of the image; integer values are taken as pixel values.
+
+Normally `isearch' is able to search for STRING in the buffer
+even if it's hidden behind a displayed image.  If INHIBIT-ISEARCH
+is non-nil, this is inhibited."
   ;; Use a space as least likely to cause trouble when it's a hidden
   ;; character in the buffer.
   (unless string (setq string " "))
@@ -641,6 +655,7 @@ height of the image; integer values are taken as pixel values."
 					(list (cons 'slice slice) image)
 				      image)
                                    rear-nonsticky t
+				   inhibit-isearch ,inhibit-isearch
                                    keymap ,image-map))))
 
 
@@ -791,7 +806,7 @@ Example:
 
    (defimage test-image ((:type xpm :file \"~/test1.xpm\")
                          (:type xbm :file \"~/test1.xbm\")))"
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   `(defvar ,symbol (find-image ',specs) ,doc))
 
 
@@ -817,21 +832,24 @@ in which case you might want to use `image-default-frame-delay'."
 	(cons images delay)))))
 
 (defun image-animated-p (image)
-  "Like `image-multi-frame-p', but returns nil if no delay is specified."
+  "Like `image-multi-frame-p', but return nil if no delay is specified."
   (let ((multi (image-multi-frame-p image)))
     (and (cdr multi) multi)))
 
 (make-obsolete 'image-animated-p 'image-multi-frame-p "24.4")
 
-;; "Destructively"?
-(defun image-animate (image &optional index limit)
+(defun image-animate (image &optional index limit position)
   "Start animating IMAGE.
 Animation occurs by destructively altering the IMAGE spec list.
 
 With optional INDEX, begin animating from that animation frame.
 LIMIT specifies how long to animate the image.  If omitted or
 nil, play the animation until the end.  If t, loop forever.  If a
-number, play until that number of seconds has elapsed."
+number, play until that number of seconds has elapsed.
+
+If POSITION (which should be buffer position where the image is
+displayed), stop the animation if the image is no longer
+displayed."
   (let ((animation (image-multi-frame-p image))
 	timer)
     (when animation
@@ -839,6 +857,9 @@ number, play until that number of seconds has elapsed."
 	  (cancel-timer timer))
       (plist-put (cdr image) :animate-buffer (current-buffer))
       (plist-put (cdr image) :animate-tardiness 0)
+      (when position
+        (plist-put (cdr image) :animate-position
+                   (set-marker (make-marker) position (current-buffer))))
       ;; Stash the data about the animation here so that we don't
       ;; trigger image recomputation unnecessarily later.
       (plist-put (cdr image) :animate-multi-frame-data animation)
@@ -912,40 +933,54 @@ for the animation speed.  A negative value means to animate in reverse."
   (plist-put (cdr image) :animate-tardiness
              (+ (* (plist-get (cdr image) :animate-tardiness) 0.9)
                 (float-time (time-since target-time))))
-  (when (and (buffer-live-p (plist-get (cdr image) :animate-buffer))
-             ;; Cumulatively delayed two seconds more than expected.
-             (or (< (plist-get (cdr image) :animate-tardiness) 2)
-		 (progn
-		   (message "Stopping animation; animation possibly too big")
-		   nil)))
-    (image-show-frame image n t)
-    (let* ((speed (image-animate-get-speed image))
-	   (time (current-time))
-	   (time-to-load-image (time-since time))
-	   (stated-delay-time
-            (/ (or (cdr (plist-get (cdr image) :animate-multi-frame-data))
-		   image-default-frame-delay)
-	       (float (abs speed))))
-	   ;; Subtract off the time we took to load the image from the
-	   ;; stated delay time.
-	   (delay (max (float-time (time-subtract stated-delay-time
-						  time-to-load-image))
-		       image-minimum-frame-delay))
-	   done)
-      (setq n (if (< speed 0)
-		  (1- n)
-		(1+ n)))
-      (if limit
-	  (cond ((>= n count) (setq n 0))
-		((< n 0) (setq n (1- count))))
-	(and (or (>= n count) (< n 0)) (setq done t)))
-      (setq time-elapsed (+ delay time-elapsed))
-      (if (numberp limit)
-	  (setq done (>= time-elapsed limit)))
-      (unless done
-	(run-with-timer delay nil #'image-animate-timeout
-			image n count time-elapsed limit
-                        (+ (float-time) delay))))))
+  (let ((buffer (plist-get (cdr image) :animate-buffer))
+        (position (plist-get (cdr image) :animate-position)))
+    (when (and (buffer-live-p buffer)
+               ;; If we have a :animate-position setting, the caller
+               ;; has requested that the animation be stopped if the
+               ;; image is no longer displayed in the buffer.
+               (or (null position)
+                   (with-current-buffer buffer
+                     (let ((disp (get-text-property position 'display)))
+                       (and (consp disp)
+                            (eq (car disp) 'image)
+                            ;; We can't check `eq'-ness of the image
+                            ;; itself, since that may change.
+                            (eq position
+                                (plist-get (cdr disp) :animate-position))))))
+               ;; Cumulatively delayed two seconds more than expected.
+               (or (< (plist-get (cdr image) :animate-tardiness) 2)
+		   (progn
+		     (message "Stopping animation; animation possibly too big")
+		     nil)))
+      (let* ((time (prog1 (current-time)
+		     (image-show-frame image n t)))
+	     (speed (image-animate-get-speed image))
+	     (time-to-load-image (time-since time))
+	     (stated-delay-time
+              (/ (or (cdr (plist-get (cdr image) :animate-multi-frame-data))
+		     image-default-frame-delay)
+	         (float (abs speed))))
+	     ;; Subtract off the time we took to load the image from the
+	     ;; stated delay time.
+	     (delay (max (float-time (time-subtract stated-delay-time
+						    time-to-load-image))
+		         image-minimum-frame-delay))
+	     done)
+        (setq n (if (< speed 0)
+		    (1- n)
+		  (1+ n)))
+        (if limit
+	    (cond ((>= n count) (setq n 0))
+		  ((< n 0) (setq n (1- count))))
+	  (and (or (>= n count) (< n 0)) (setq done t)))
+        (setq time-elapsed (+ delay time-elapsed))
+        (if (numberp limit)
+	    (setq done (>= time-elapsed limit)))
+        (unless done
+	  (run-with-timer delay nil #'image-animate-timeout
+			  image n count time-elapsed limit
+                          (+ (float-time) delay)))))))
 
 
 (defvar imagemagick-types-inhibit)
@@ -1137,6 +1172,13 @@ default is 20%."
       (error "No image under point"))
     image))
 
+;;;###autoload
+(defun image-at-point-p ()
+  "Return non-nil if there is an image at point."
+  (condition-case nil
+      (prog1 t (image--get-image))
+    (error nil)))
+
 (defun image--get-imagemagick-and-warn (&optional position)
   (declare-function image-transforms-p "image.c" (&optional frame))
   (unless (or (fboundp 'imagemagick-types) (image-transforms-p))
@@ -1191,7 +1233,9 @@ rotations by only multiples of 90 degrees."
                       360)))))
 
 (defun image-save ()
-  "Save the image under point."
+  "Save the image under point.
+This writes the original image data to a file.  Rotating or
+changing the displayed image size does not affect the saved image."
   (interactive)
   (let ((image (image--get-image)))
     (with-temp-buffer

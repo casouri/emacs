@@ -63,7 +63,8 @@ See `tramp-actions-before-shell' for more info.")
 
 ;;;###tramp-autoload
 (defconst tramp-sudoedit-file-name-handler-alist
-  '((access-file . tramp-handle-access-file)
+  '((abbreviate-file-name . tramp-handle-abbreviate-file-name)
+    (access-file . tramp-handle-access-file)
     (add-name-to-file . tramp-sudoedit-handle-add-name-to-file)
     (byte-compiler-base-file-name . ignore)
     (copy-directory . tramp-handle-copy-directory)
@@ -88,6 +89,7 @@ See `tramp-actions-before-shell' for more info.")
     (file-exists-p . tramp-sudoedit-handle-file-exists-p)
     (file-in-directory-p . tramp-handle-file-in-directory-p)
     (file-local-copy . tramp-handle-file-local-copy)
+    (file-locked-p . tramp-handle-file-locked-p)
     (file-modes . tramp-handle-file-modes)
     (file-name-all-completions
      . tramp-sudoedit-handle-file-name-all-completions)
@@ -115,9 +117,11 @@ See `tramp-actions-before-shell' for more info.")
     (insert-directory . tramp-handle-insert-directory)
     (insert-file-contents . tramp-handle-insert-file-contents)
     (load . tramp-handle-load)
+    (lock-file . tramp-handle-lock-file)
     (make-auto-save-file-name . tramp-handle-make-auto-save-file-name)
     (make-directory . tramp-sudoedit-handle-make-directory)
     (make-directory-internal . ignore)
+    (make-lock-file-name . tramp-handle-make-lock-file-name)
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . ignore)
     (make-symbolic-link . tramp-sudoedit-handle-make-symbolic-link)
@@ -136,6 +140,7 @@ See `tramp-actions-before-shell' for more info.")
     (tramp-get-remote-uid . tramp-sudoedit-handle-get-remote-uid)
     (tramp-set-file-uid-gid . tramp-sudoedit-handle-set-file-uid-gid)
     (unhandled-file-name-directory . ignore)
+    (unlock-file . tramp-handle-unlock-file)
     (vc-registered . ignore)
     (verify-visited-file-modtime . tramp-handle-verify-visited-file-modtime)
     (write-region . tramp-sudoedit-handle-write-region))
@@ -144,11 +149,10 @@ See `tramp-actions-before-shell' for more info.")
 ;; It must be a `defsubst' in order to push the whole code into
 ;; tramp-loaddefs.el.  Otherwise, there would be recursive autoloading.
 ;;;###tramp-autoload
-(defsubst tramp-sudoedit-file-name-p (filename)
-  "Check if it's a FILENAME for SUDOEDIT."
-  (and (tramp-tramp-file-p filename)
-       (string= (tramp-file-name-method (tramp-dissect-file-name filename))
-		tramp-sudoedit-method)))
+(defsubst tramp-sudoedit-file-name-p (vec-or-filename)
+  "Check if it's a VEC-OR-FILENAME for SUDOEDIT."
+  (when-let* ((vec (tramp-ensure-dissected-file-name vec-or-filename)))
+    (string= (tramp-file-name-method vec) tramp-sudoedit-method)))
 
 ;;;###tramp-autoload
 (defun tramp-sudoedit-file-name-handler (operation &rest args)
@@ -186,7 +190,7 @@ arguments to pass to the OPERATION."
 		  (and (numberp ok-if-already-exists)
 		       (not (yes-or-no-p
 			     (format
-			      "File %s already exists; make it a link anyway? "
+			      "File %s already exists; make it a link anyway?"
 			      v2-localname)))))
 	      (tramp-error v2 'file-already-exists newname)
 	    (delete-file newname)))
@@ -229,11 +233,11 @@ absolute file names."
 
     (let ((t1 (tramp-sudoedit-file-name-p filename))
 	  (t2 (tramp-sudoedit-file-name-p newname))
-	  (file-times (tramp-compat-file-attribute-modification-time
+	  (file-times (file-attribute-modification-time
 		       (file-attributes filename)))
 	  (file-modes (tramp-default-file-modes filename))
 	  (attributes (and preserve-extended-attributes
-			   (apply #'file-extended-attributes (list filename))))
+			   (file-extended-attributes filename)))
 	  (sudoedit-operation
 	   (cond
 	    ((and (eq op 'copy) preserve-uid-gid) '("cp" "-f" "-p"))
@@ -243,7 +247,7 @@ absolute file names."
 
       (with-parsed-tramp-file-name (if t1 filename newname) nil
 	(unless (file-exists-p filename)
-	  (tramp-compat-file-missing v filename))
+	  (tramp-error v 'file-missing filename))
 	(when (and (not ok-if-already-exists) (file-exists-p newname))
 	  (tramp-error v 'file-already-exists newname))
 	(when (and (file-directory-p newname)
@@ -289,7 +293,7 @@ absolute file names."
 	;; errors, because ACL strings could be incompatible.
 	(when attributes
 	  (ignore-errors
-	    (apply #'set-file-extended-attributes (list newname attributes))))
+	    (set-file-extended-attributes newname attributes)))
 
 	(when (and t1 (eq op 'rename))
 	  (with-parsed-tramp-file-name filename v1
@@ -332,7 +336,7 @@ absolute file names."
     (if (and delete-by-moving-to-trash trash)
 	(move-file-to-trash filename)
       (unless (tramp-sudoedit-send-command
-	       v "rm" (tramp-compat-file-name-unquote localname))
+	       v "rm" "-f" (tramp-compat-file-name-unquote localname))
 	;; Propagate the error.
 	(with-current-buffer (tramp-get-connection-buffer v)
 	  (goto-char (point-min))
@@ -349,7 +353,7 @@ the result will be a local, non-Tramp, file name."
   (when (zerop (length name)) (setq name "."))
   ;; Unless NAME is absolute, concat DIR and NAME.
   (unless (file-name-absolute-p name)
-    (setq name (concat (file-name-as-directory dir) name)))
+    (setq name (tramp-compat-file-name-concat dir name)))
   (with-parsed-tramp-file-name name nil
     ;; Tilde expansion if necessary.  We cannot accept "~/", because
     ;; under sudo "~/" is expanded to the local user home directory
@@ -449,19 +453,21 @@ the result will be a local, non-Tramp, file name."
 	  (if (file-directory-p (expand-file-name f directory))
 	      (file-name-as-directory f)
 	    f))
-	(with-current-buffer (tramp-get-connection-buffer v)
-	  (delq
-	   nil
-	   (mapcar
-	    (lambda (l) (and (not (string-match-p "^[[:space:]]*$" l)) l))
-	    (split-string (buffer-string) "\n" 'omit)))))))))
+	(delq
+	 nil
+	 (mapcar
+	  (lambda (l) (and (not (string-match-p "^[[:space:]]*$" l)) l))
+	  (split-string
+	   (tramp-get-buffer-string (tramp-get-connection-buffer v))
+	   "\n" 'omit))))))))
 
 (defun tramp-sudoedit-handle-file-readable-p (filename)
   "Like `file-readable-p' for Tramp files."
   (with-parsed-tramp-file-name filename nil
     (with-tramp-file-property v localname "file-readable-p"
-      (tramp-sudoedit-send-command
-       v "test" "-r" (tramp-compat-file-name-unquote localname)))))
+      (or (tramp-handle-file-readable-p filename)
+	  (tramp-sudoedit-send-command
+	   v "test" "-r" (tramp-compat-file-name-unquote localname))))))
 
 (defun tramp-sudoedit-handle-set-file-modes (filename mode &optional flag)
   "Like `set-file-modes' for Tramp files."
@@ -529,7 +535,7 @@ the result will be a local, non-Tramp, file name."
 	   (if (or (null time)
 		   (tramp-compat-time-equal-p time tramp-time-doesnt-exist)
 		   (tramp-compat-time-equal-p time tramp-time-dont-know))
-	       (current-time)
+	       nil
 	     time)))
       (tramp-sudoedit-send-command
        v "env" "TZ=UTC" "touch" "-t"
@@ -593,6 +599,7 @@ the result will be a local, non-Tramp, file name."
      v (if parents "/" (file-name-directory localname)))
     (unless (tramp-sudoedit-send-command
 	     v (if parents '("mkdir" "-p") "mkdir")
+	     "-m" (format "%#o" (default-file-modes))
 	     (tramp-compat-file-name-unquote localname))
       (tramp-error v 'file-error "Couldn't make directory %s" dir))))
 
@@ -627,7 +634,7 @@ component is used as the target of the symlink."
 		       (not
 			(yes-or-no-p
 			 (format
-			  "File %s already exists; make it a link anyway? "
+			  "File %s already exists; make it a link anyway?"
 			  localname)))))
 	      (tramp-error v 'file-already-exists localname)
 	    (delete-file linkname)))
@@ -713,29 +720,34 @@ ID-FORMAT valid values are `string' and `integer'."
 (defun tramp-sudoedit-handle-write-region
   (start end filename &optional append visit lockname mustbenew)
   "Like `write-region' for Tramp files."
+  (setq filename (expand-file-name filename))
   (with-parsed-tramp-file-name filename nil
-    (let* ((uid (or (tramp-compat-file-attribute-user-id
-		     (file-attributes filename 'integer))
+    (let* ((uid (or (file-attribute-user-id (file-attributes filename 'integer))
 		    (tramp-get-remote-uid v 'integer)))
-	   (gid (or (tramp-compat-file-attribute-group-id
-		     (file-attributes filename 'integer))
+	   (gid (or (file-attribute-group-id (file-attributes filename 'integer))
 		    (tramp-get-remote-gid v 'integer)))
 	   (flag (and (eq mustbenew 'excl) 'nofollow))
-	   (modes (tramp-default-file-modes filename flag)))
+	   (modes (tramp-default-file-modes filename flag))
+	   (attributes (file-extended-attributes filename)))
       (prog1
 	  (tramp-handle-write-region
 	   start end filename append visit lockname mustbenew)
 
-	;; Set the ownership and modes.  This is not performed in
-	;; `tramp-handle-write-region'.
-	(unless (and (= (tramp-compat-file-attribute-user-id
+	;; Set the ownership, modes and extended attributes.  This is
+	;; not performed in `tramp-handle-write-region'.
+	(unless (and (= (file-attribute-user-id
 			 (file-attributes filename 'integer))
 			uid)
-                     (= (tramp-compat-file-attribute-group-id
+                     (= (file-attribute-group-id
 			 (file-attributes filename 'integer))
 			gid))
           (tramp-set-file-uid-gid filename uid gid))
-	(tramp-compat-set-file-modes filename modes flag)))))
+	(tramp-compat-set-file-modes filename modes flag)
+	;; We ignore possible errors, because ACL strings could be
+	;; incompatible.
+	(when attributes
+	  (ignore-errors
+	    (set-file-extended-attributes filename attributes)))))))
 
 
 ;; Internal functions.
@@ -803,6 +815,9 @@ in case of error, t otherwise."
 		      (tramp-compat-flatten-tree args))))
 	   ;; We suppress the messages `Waiting for prompts from remote shell'.
 	   (tramp-verbose (if (= tramp-verbose 3) 2 tramp-verbose))
+	   ;; The password shall be cached also in case of "emacs -Q".
+	   ;; See `tramp-process-actions'.
+	   (tramp-cache-read-persistent-data t)
 	   ;; We do not want to save the password.
 	   auth-source-save-behavior)
       (tramp-message vec 6 "%s" (string-join (process-command p) " "))

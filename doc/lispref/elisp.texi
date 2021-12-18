@@ -161,7 +161,7 @@ Cover art by Etienne Suvasa.
 
 @ifset WWW_GNU_ORG
 @html
-<p>The homepage for GNU Emacs is at
+<p>The GNU Emacs website is at
 <a href="/software/emacs/">https://www.gnu.org/software/emacs/</a>.<br>
 For information on using Emacs, refer to the
 <a href="/software/emacs/manual/emacs.html">Emacs Manual</a>.<br>
@@ -235,7 +235,7 @@ To view this manual in other formats, click
 
 Appendices
 
-* Antinews::                Info for users downgrading to Emacs 26.
+* Antinews::                Info for users downgrading to Emacs 27.
 * GNU Free Documentation License:: The license for this documentation.
 * GPL::                     Conditions for copying and changing GNU Emacs.
 * Tips::                    Advice and coding conventions for Emacs Lisp.
@@ -366,6 +366,7 @@ Editing Types
 * Keymap Type::             What function a keystroke invokes.
 * Overlay Type::            How an overlay is represented.
 * Font Type::               Fonts for displaying text.
+* Xwidget Type::            Embeddable widgets.
 
 Numbers
 
@@ -789,6 +790,7 @@ Defining Commands
 * Interactive Codes::       The standard letter-codes for reading arguments
                               in various ways.
 * Interactive Examples::    Examples of how to read interactive arguments.
+* Command Modes::           Specifying that commands are for a specific mode.
 * Generic Commands::        Select among command alternatives.
 
 
@@ -839,6 +841,7 @@ Keymaps
 * Key Lookup::              Finding a key's binding in one keymap.
 * Functions for Key Lookup::    How to request key lookup.
 * Changing Key Bindings::   Redefining a key in a keymap.
+* Low-Level Key Binding::   Legacy key syntax description.
 * Remapping Commands::      A keymap can translate one command to another.
 * Translation Keymaps::     Keymaps for translating sequences of events.
 * Key Binding Commands::    Interactive interfaces for redefining keys.
@@ -1048,6 +1051,7 @@ Windows
 
 * Basic Windows::           Basic information on using windows.
 * Windows and Frames::      Relating windows to the frame they appear on.
+* Selecting Windows::       The selected window is the one that you edit in.
 * Window Sizes::            Accessing a window's size.
 * Resizing Windows::        Changing the sizes of windows.
 * Preserving Window Sizes:: Preserving the size of windows.
@@ -1055,7 +1059,6 @@ Windows
 * Deleting Windows::        Deleting a window gives its space to other windows.
 * Recombining Windows::     Preserving the frame layout when splitting and
                               deleting windows.
-* Selecting Windows::       The selected window is the one that you edit in.
 * Cyclic Window Ordering::  Moving around the existing windows.
 * Buffers and Windows::     Each window displays the contents of a buffer.
 * Switching Buffers::       Higher-level functions for switching to a buffer.
@@ -1123,6 +1126,7 @@ Frames
 * Dialog Boxes::            Displaying a box to ask yes or no.
 * Pointer Shape::           Specifying the shape of the mouse pointer.
 * Window System Selections::Transferring text to and from other X clients.
+* Yanking Media::           Yanking things that aren't plain text.
 * Drag and Drop::           Internals of Drag-and-Drop implementation.
 * Color Names::             Getting the definitions of color names.
 * Text Terminal Colors::    Defining colors for text terminals.
@@ -1221,6 +1225,7 @@ Text
 * Base 64::                 Conversion to or from base 64 encoding.
 * Checksum/Hash::           Computing cryptographic hashes.
 * GnuTLS Cryptography::     Cryptographic algorithms imported from GnuTLS.
+* Database::                Interacting with an SQL database.
 * Parsing HTML/XML::        Parsing HTML and XML.
 * Atomic Changes::          Installing several buffer changes atomically.
 * Change Hooks::            Supplying functions to be run when text is changed.
@@ -1316,6 +1321,7 @@ Regular Expressions
 * Rx Notation::             An alternative, structured regexp notation.
 @end ifnottex
 * Regexp Functions::        Functions for operating on regular expressions.
+* Regexp Problems::         Some problems and how they may be avoided.
 
 Syntax of Regular Expressions
 

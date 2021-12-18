@@ -32,14 +32,6 @@
   "Short documentation."
   :group 'lisp)
 
-(defface shortdoc-separator
-  '((((class color) (background dark))
-     :height 0.1 :background "#505050" :extend t)
-    (((class color) (background light))
-     :height 0.1 :background "#a0a0a0" :extend t)
-    (t :height 0.1 :inverse-video t :extend t))
-  "Face used to separate sections.")
-
 (defface shortdoc-heading
   '((t :inherit variable-pitch :height 1.3 :weight bold))
   "Face used for a heading."
@@ -79,6 +71,7 @@ string, it'll be inserted as is, then the string will be `read',
 and then evaluated.
 
 There can be any number of :example/:result elements."
+  (declare (indent defun))
   `(progn
      (setq shortdoc--groups (delq (assq ',group shortdoc--groups)
                                   shortdoc--groups))
@@ -162,6 +155,10 @@ There can be any number of :example/:result elements."
    :eval (split-string "foo bar")
    :eval (split-string "|foo|bar|" "|")
    :eval (split-string "|foo|bar|" "|" t))
+  (split-string-and-unquote
+   :eval (split-string-and-unquote "foo \"bar zot\""))
+  (split-string-shell-command
+   :eval (split-string-shell-command "ls /tmp/'foo bar'"))
   (string-lines
    :eval (string-lines "foo\n\nbar")
    :eval (string-lines "foo\n\nbar" t))
@@ -199,6 +196,13 @@ There can be any number of :example/:result elements."
    :eval (substring-no-properties (propertize "foobar" 'face 'bold) 0 3))
   (try-completion
    :eval (try-completion "foo" '("foobar" "foozot" "gazonk")))
+  "Unicode Strings"
+  (string-glyph-split
+   :eval (string-glyph-split "Hello, 👼🏻🧑🏼‍🤝‍🧑🏻"))
+  (string-glyph-compose
+   :eval (string-glyph-compose "Å"))
+  (string-glyph-decompose
+   :eval (string-glyph-decompose "Å"))
   "Predicates for Strings"
   (string-equal
    :eval (string-equal "foo" "foo"))
@@ -245,7 +249,14 @@ There can be any number of :example/:result elements."
    :eval (number-to-string 42))
   "Data About Strings"
   (length
-   :eval (length "foo"))
+   :eval (length "foo")
+   :eval (length "avocado: 🥑"))
+  (string-width
+   :eval (string-width "foo")
+   :eval (string-width "avocado: 🥑"))
+  (string-pixel-width
+   :eval (string-pixel-width "foo")
+   :eval (string-pixel-width "avocado: 🥑"))
   (string-search
    :eval (string-search "bar" "foobarzot"))
   (assoc-string
@@ -268,14 +279,28 @@ There can be any number of :example/:result elements."
    :eval (file-name-extension "/tmp/foo.txt"))
   (file-name-sans-extension
    :eval (file-name-sans-extension "/tmp/foo.txt"))
+  (file-name-with-extension
+   :eval (file-name-with-extension "foo.txt" "bin")
+   :eval (file-name-with-extension "foo" "bin"))
   (file-name-base
    :eval (file-name-base "/tmp/foo.txt"))
   (file-relative-name
    :eval (file-relative-name "/tmp/foo" "/tmp"))
+  (file-name-split
+   :eval (file-name-split "/tmp/foo")
+   :eval (file-name-split "foo/bar"))
   (make-temp-name
    :eval (make-temp-name "/tmp/foo-"))
+  (file-name-concat
+   :eval (file-name-concat "/tmp/" "foo")
+   :eval (file-name-concat "/tmp" "foo")
+   :eval (file-name-concat "/tmp" "foo" "bar/" "zot")
+   :eval (file-name-concat "/tmp" "~"))
   (expand-file-name
-   :eval (expand-file-name "foo" "/tmp/"))
+   :eval (expand-file-name "foo" "/tmp/")
+   :eval (expand-file-name "foo" "/tmp///")
+   :eval (expand-file-name "foo" "/tmp/foo/.././")
+   :eval (expand-file-name "~" "/tmp/"))
   (substitute-in-file-name
    :eval (substitute-in-file-name "$HOME/foo"))
   "Directory Functions"
@@ -341,6 +366,9 @@ There can be any number of :example/:result elements."
   (file-newer-than-file-p
    :no-eval (file-newer-than-file-p "/tmp/foo" "/tmp/bar")
    :eg-result nil)
+  (file-has-changed-p
+   :no-eval (file-has-changed-p "/tmp/foo")
+   :eg-result t)
   (file-equal-p
    :no-eval (file-equal-p "/tmp/foo" "/tmp/bar")
    :eg-result nil)
@@ -488,6 +516,9 @@ There can be any number of :example/:result elements."
    :eval (list 1 2 3))
   (number-sequence
    :eval (number-sequence 5 8))
+  (ensure-list
+   :eval (ensure-list "foo")
+   :eval (ensure-list '(1 2 3)))
   "Operations on Lists"
   (append
    :eval (append '("foo" "bar") '("zot")))
@@ -496,9 +527,13 @@ There can be any number of :example/:result elements."
   (flatten-tree
    :eval (flatten-tree '(1 (2 3) 4)))
   (car
-   :eval (car '(one two three)))
+   :eval (car '(one two three))
+   :eval (car '(one . two))
+   :eval (car nil))
   (cdr
-   :eval (cdr '(one two three)))
+   :eval (cdr '(one two three))
+   :eval (cdr '(one . two))
+   :eval (cdr nil))
   (last
    :eval (last '(one two three)))
   (butlast
@@ -633,10 +668,12 @@ There can be any number of :example/:result elements."
 
 
 (define-short-documentation-group vector
+  "Making Vectors"
   (make-vector
    :eval (make-vector 5 "foo"))
   (vector
    :eval (vector 1 "b" 3))
+  "Operations on Vectors"
   (vectorp
    :eval (vectorp [1])
    :eval (vectorp "1"))
@@ -646,13 +683,16 @@ There can be any number of :example/:result elements."
    :eval (append [1 2] nil))
   (length
    :eval (length [1 2 3]))
-  (mapcar
-   :eval (mapcar #'identity [1 2 3]))
-  (reduce
-   :eval (reduce #'+ [1 2 3]))
+  (seq-reduce
+   :eval (seq-reduce #'+ [1 2 3] 0))
   (seq-subseq
    :eval (seq-subseq [1 2 3 4 5] 1 3)
-   :eval (seq-subseq [1 2 3 4 5] 1)))
+   :eval (seq-subseq [1 2 3 4 5] 1))
+  "Mapping Over Vectors"
+  (mapcar
+   :eval (mapcar #'identity [1 2 3]))
+  (mapc
+   :eval (mapc #'insert ["1" "2" "3"])))
 
 (define-short-documentation-group regexp
   "Matching Strings"
@@ -689,6 +729,8 @@ There can be any number of :example/:result elements."
   (match-substitute-replacement
    :no-eval (match-substitute-replacement "new")
    :eg-result "new")
+  (replace-regexp-in-region
+   :no-value (replace-regexp-in-region "[0-9]+" "Num \\&"))
   "Utilities"
   (regexp-quote
    :eval (regexp-quote "foo.*bar"))
@@ -796,6 +838,8 @@ There can be any number of :example/:result elements."
    :eval (seq-remove #'numberp '(1 2 c d 5)))
   (seq-group-by
    :eval (seq-group-by #'cl-plusp '(-1 2 3 -4 -5 6)))
+  (seq-union
+   :eval (seq-union '(1 2 3) '(3 5)))
   (seq-difference
    :eval (seq-difference '(1 2 3) '(2 3 4)))
   (seq-intersection
@@ -876,6 +920,9 @@ There can be any number of :example/:result elements."
    :eg-result 67)
   (char-after
    :eval (char-after 45))
+  (get-byte
+   :no-eval (get-byte 45)
+   :eg-result-string "#xff")
   "Altering Buffers"
   (delete-region
    :no-value (delete-region (point-min) (point-max)))
@@ -883,6 +930,10 @@ There can be any number of :example/:result elements."
    :no-value (erase-buffer))
   (insert
    :no-value (insert "This string will be inserted in the buffer\n"))
+  (subst-char-in-region
+   :no-eval "(subst-char-in-region (point-min) (point-max) ?+ ?-)")
+  (replace-string-in-region
+   :no-value (replace-string-in-region "foo" "bar"))
   "Locking"
   (lock-buffer
    :no-value (lock-buffer "/tmp/foo"))
@@ -1133,9 +1184,86 @@ There can be any number of :example/:result elements."
   (sqrt
    :eval (sqrt -1)))
 
+(define-short-documentation-group text-properties
+  "Examining Text Properties"
+  (get-text-property
+   :eval (get-text-property 0 'foo (propertize "x" 'foo t)))
+  (get-char-property
+   :eval (get-char-property 0 'foo (propertize "x" 'foo t)))
+  (get-pos-property
+   :eval (get-pos-property 0 'foo (propertize "x" 'foo t)))
+  (get-char-property-and-overlay
+   :eval (get-char-property-and-overlay 0 'foo (propertize "x" 'foo t)))
+  (text-properties-at
+   :eval (text-properties-at (point)))
+  "Changing Text Properties"
+  (put-text-property
+   :eval (let ((s "abc")) (put-text-property 0 1 'foo t s) s)
+   :no-eval (put-text-property (point) (1+ (point)) 'face 'error))
+  (add-text-properties
+   :no-eval (add-text-properties (point) (1+ (point)) '(face error)))
+  (remove-text-properties
+   :no-eval (remove-text-properties (point) (1+ (point)) '(face nil)))
+  (remove-list-of-text-properties
+   :no-eval (remove-list-of-text-properties (point) (1+ (point)) '(face font-lock-face)))
+  (set-text-properties
+   :no-eval (set-text-properties (point) (1+ (point)) '(face error)))
+  (add-face-text-property
+   (add-face-text-property START END '(:foreground "green")))
+  (propertize
+   :eval (propertize "foo" 'face 'italic 'mouse-face 'bold-italic))
+  "Searching for Text Properties"
+  (next-property-change
+   :no-eval (next-property-change (point) (current-buffer)))
+  (previous-property-change
+   :no-eval (previous-property-change (point) (current-buffer)))
+  (next-single-property-change
+   :no-eval (next-single-property-change (point) 'face (current-buffer)))
+  (previous-single-property-change
+   :no-eval (previous-single-property-change (point) 'face (current-buffer)))
+  ;; TODO: There are some more that could be added here.
+  (text-property-search-forward
+   :no-eval (text-property-search-forward 'face nil t))
+  (text-property-search-backward
+   :no-eval (text-property-search-backward 'face nil t)))
+
+(define-short-documentation-group keymaps
+  "Defining keymaps"
+  (define-keymap
+    :no-eval (define-keymap "C-c C-c" #'quit-buffer))
+  (defvar-keymap
+      :no-eval (defvar-keymap my-keymap "C-c C-c" map #'quit-buffer))
+  "Setting keys"
+  (keymap-set
+   :no-eval (keymap-set map "C-c C-c" #'quit-buffer))
+  (keymap-local-set
+   :no-eval (keymap-local-set "C-c C-c" #'quit-buffer))
+  (keymap-global-set
+   :no-eval (keymap-global-set "C-c C-c" #'quit-buffer))
+  (keymap-unset
+   :no-eval (keymap-unset map "C-c C-c"))
+  (keymap-local-unset
+   :no-eval (keymap-local-unset "C-c C-c"))
+  (keymap-global-unset
+   :no-eval (keymap-global-unset "C-c C-c"))
+  (keymap-substitute
+   :no-eval (keymap-substitute map "C-c C-c" "M-a"))
+  (keymap-set-after
+   :no-eval (keymap-set-after map "<separator-2>" menu-bar-separator))
+  "Predicates"
+  (keymapp
+   :eval (keymapp (define-keymap)))
+  (key-valid-p
+   :eval (key-valid-p "C-c C-c")
+   :eval (key-valid-p "C-cC-c"))
+  "Lookup"
+  (keymap-lookup
+   :eval (keymap-lookup (current-global-map) "C-x x g")))
+
 ;;;###autoload
-(defun shortdoc-display-group (group)
-  "Pop to a buffer with short documentation summary for functions in GROUP."
+(defun shortdoc-display-group (group &optional function)
+  "Pop to a buffer with short documentation summary for functions in GROUP.
+If FUNCTION is non-nil, place point on the entry for FUNCTION (if any)."
   (interactive (list (completing-read "Show summary for functions in: "
                                       (mapcar #'car shortdoc--groups))))
   (when (stringp group)
@@ -1162,19 +1290,21 @@ There can be any number of :example/:result elements."
         ;; There may be functions not yet defined in the data.
         ((fboundp (car data))
          (when prev
-           (insert (propertize "\n" 'face 'shortdoc-separator)))
+           (insert (make-separator-line)))
          (setq prev t)
          (shortdoc--display-function data))))
      (cdr (assq group shortdoc--groups))))
-  (goto-char (point-min)))
+  (goto-char (point-min))
+  (when function
+    (text-property-search-forward 'shortdoc-function function t)
+    (beginning-of-line)))
 
 (defun shortdoc--display-function (data)
   (let ((function (pop data))
         (start-section (point))
         arglist-start)
     ;; Function calling convention.
-    (insert (propertize "("
-                        'shortdoc-function t))
+    (insert (propertize "(" 'shortdoc-function function))
     (if (plist-get data :no-manual)
         (insert-text-button
          (symbol-name function)
@@ -1248,11 +1378,11 @@ function's documentation in the Info manual")))
                   (princ value (current-buffer))
                   (insert "\n"))
                  (:eg-result
-                  (insert "    eg. " double-arrow " ")
+                  (insert "    e.g. " double-arrow " ")
                   (prin1 value (current-buffer))
                   (insert "\n"))
                  (:eg-result-string
-                  (insert "    eg. " double-arrow " ")
+                  (insert "    e.g. " double-arrow " ")
                   (princ value (current-buffer))
                   (insert "\n")))))
     ;; Insert the arglist after doing the evals, in case that's pulled
@@ -1293,52 +1423,50 @@ Example:
         (setq slist (cdr slist)))
       (setcdr slist (cons elem (cdr slist))))))
 
-(defvar shortdoc-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "n") 'shortdoc-next)
-    (define-key map (kbd "p") 'shortdoc-previous)
-    (define-key map (kbd "C-c C-n") 'shortdoc-next-section)
-    (define-key map (kbd "C-c C-p") 'shortdoc-previous-section)
-    map)
-  "Keymap for `shortdoc-mode'.")
+(defvar-keymap shortdoc-mode-map
+  :doc "Keymap for `shortdoc-mode'."
+  "n"       #'shortdoc-next
+  "p"       #'shortdoc-previous
+  "C-c C-n" #'shortdoc-next-section
+  "C-c C-p" #'shortdoc-previous-section)
 
 (define-derived-mode shortdoc-mode special-mode "shortdoc"
-  "Mode for shortdoc.")
+  "Mode for shortdoc."
+  :interactive nil)
 
-(defmacro shortdoc--goto-section (arg sym &optional reverse)
-  `(progn
-     (unless (natnump ,arg)
-       (setq ,arg 1))
-     (while (< 0 ,arg)
-       (,(if reverse
-             'text-property-search-backward
-           'text-property-search-forward)
-        ,sym t)
-       (setq ,arg (1- ,arg)))))
+(defun shortdoc--goto-section (arg sym &optional reverse)
+  (unless (natnump arg)
+    (setq arg 1))
+  (while (> arg 0)
+    (funcall
+     (if reverse 'text-property-search-backward
+       'text-property-search-forward)
+     sym nil t t)
+    (setq arg (1- arg))))
 
 (defun shortdoc-next (&optional arg)
   "Move cursor to the next function.
 With ARG, do it that many times."
-  (interactive "p")
+  (interactive "p" shortdoc-mode)
   (shortdoc--goto-section arg 'shortdoc-function))
 
 (defun shortdoc-previous (&optional arg)
   "Move cursor to the previous function.
 With ARG, do it that many times."
-  (interactive "p")
+  (interactive "p" shortdoc-mode)
   (shortdoc--goto-section arg 'shortdoc-function t)
   (backward-char 1))
 
 (defun shortdoc-next-section (&optional arg)
   "Move cursor to the next section.
 With ARG, do it that many times."
-  (interactive "p")
+  (interactive "p" shortdoc-mode)
   (shortdoc--goto-section arg 'shortdoc-section))
 
 (defun shortdoc-previous-section (&optional arg)
   "Move cursor to the previous section.
 With ARG, do it that many times."
-  (interactive "p")
+  (interactive "p" shortdoc-mode)
   (shortdoc--goto-section arg 'shortdoc-section t)
   (forward-line -2))
 

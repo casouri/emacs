@@ -519,6 +519,19 @@ DIRS are relative."
       xdg-dir)
      (t emacs-d-dir))))
 
+(defvar comp--delayed-sources)
+(defvar comp--loadable)
+(declare-function native--compile-async "comp.el"
+                  (files &optional recursively load selector))
+(defun startup--honor-delayed-native-compilations ()
+  "Honor pending delayed deferred native compilations."
+  (when (and (native-comp-available-p)
+             comp--delayed-sources)
+    (require 'comp)
+    (setq comp--loadable t)
+    (native--compile-async comp--delayed-sources nil 'late)
+    (setq comp--delayed-sources nil)))
+
 (defvar native-comp-eln-load-path)
 (defun normal-top-level ()
   "Emacs calls this function when it first starts up.
@@ -549,7 +562,11 @@ It is the default value of the variable `top-level'."
       ;; When $HOME is set to '/nonexistent' means we are running the
       ;; testsuite, add a temporary folder in front to produce there
       ;; new compilations.
-      (when (equal (getenv "HOME") "/nonexistent")
+      (when (and (equal (getenv "HOME") "/nonexistent")
+                 ;; We may be running in a chroot environment where we
+                 ;; can't write anything.
+                 (file-writable-p (expand-file-name
+                                   (or temporary-file-directory ""))))
         (let ((tmp-dir (make-temp-file "emacs-testsuite-" t)))
           (add-hook 'kill-emacs-hook (lambda () (delete-directory tmp-dir t)))
           (push tmp-dir native-comp-eln-load-path))))
@@ -781,7 +798,8 @@ It is the default value of the variable `top-level'."
           (if (string-match "\\`DISPLAY=" varval)
               (setq display varval))))
       (when display
-        (delete display process-environment)))))
+        (delete display process-environment))))
+  (startup--honor-delayed-native-compilations))
 
 ;; Precompute the keyboard equivalents in the menu bar items.
 ;; Command-line options supported by tty's:
@@ -1618,9 +1636,10 @@ Each element in the list should be a list of strings or pairs
   `((:face (variable-pitch font-lock-comment-face)
      "This is "
      :link ("GNU Emacs"
-	    ,(lambda (_button) (browse-url "https://www.gnu.org/software/emacs/"))
+	    ,(lambda (_button)
+               (browse-url "https://www.gnu.org/software/emacs/"))
 	    "Browse https://www.gnu.org/software/emacs/")
-     ", one component of the "
+     ", a text editor and more.\nIt's a component of the "
      :link
      ,(lambda ()
        (if (eq system-type 'gnu/linux)
@@ -1633,7 +1652,11 @@ Each element in the list should be a list of strings or pairs
      " operating system.\n"
      :face (variable-pitch font-lock-builtin-face)
      "\n"
-     ,(lambda () (emacs-version))
+     ,(lambda ()
+        (with-temp-buffer
+          (insert (emacs-version))
+          (fill-region (point-min) (point-max))
+          (buffer-string)))
      "\n"
      :face (variable-pitch (:height 0.8))
      ,(lambda () emacs-copyright)
@@ -1784,9 +1807,19 @@ a face or button specification."
 	 (window-width (window-width)))
     (when img
       (when (> window-width image-width)
-	;; Center the image in the window.
-	(insert (propertize " " 'display
-			    `(space :align-to (+ center (-0.5 . ,img)))))
+        ;; Center the image above text.
+        ;;  NB. The logo used to be centered in the window, which made
+        ;;      it align poorly with the non-centered text on large
+        ;;      displays.  Arguably it would be better to center both
+        ;;      text and image, but this will do for now.  -- SK
+        (let ((text-width 80)
+              ;; The below value chosen to avoid splash screen being
+              ;; visually unbalanced.  This needs to be eye-balled.
+              (adjust-left 3))
+          (insert (propertize " " 'display
+                              `(space :align-to (+ ,(- (/ text-width 2)
+                                                       adjust-left)
+                                                   (-0.5 . ,img))))))
 
 	;; Change the color of the XPM version of the splash image
 	;; so that it is visible with a dark frame background.
@@ -1807,28 +1840,35 @@ a face or button specification."
   (unless concise
     (fancy-splash-insert
      :face 'variable-pitch
-     "\nTo start...     "
+     "\nTo start...\t"
      :link `("Open a File"
 	     ,(lambda (_button) (call-interactively 'find-file))
 	     "Specify a new file's name, to edit the file")
-     "     "
+     "\t\t"
      :link `("Open Home Directory"
 	     ,(lambda (_button) (dired "~"))
 	     "Open your home directory, to operate on its files")
-     "     "
+     "\n\t"
      :link `("Customize Startup"
 	     ,(lambda (_button) (customize-group 'initialization))
 	     "Change initialization settings including this screen")
+     "\t"
+     :link `("Explore Packages"
+	     ,(lambda (_button) (call-interactively 'package-list-packages))
+	     "Explore, install and remove Emacs packages (requires Internet connection)")
      "\n"))
   (fancy-splash-insert
    :face 'variable-pitch "To quit a partially entered command, type "
    :face 'default "Control-g"
    :face 'variable-pitch ".\n")
-  (fancy-splash-insert :face '(variable-pitch font-lock-builtin-face)
-		       "\nThis is "
-		       (emacs-version)
-		       "\n"
-		       :face '(variable-pitch (:height 0.8))
+  (save-restriction
+    (narrow-to-region (point) (point))
+    (fancy-splash-insert :face '(variable-pitch font-lock-builtin-face)
+		         "\nThis is "
+		         (emacs-version)
+		         "\n")
+    (fill-region (point-min) (point-max)))
+  (fancy-splash-insert :face '(variable-pitch (:height 0.8))
 		       emacs-copyright
 		       "\n")
   (when auto-save-list-file-prefix
@@ -1953,8 +1993,9 @@ splash screen in another window."
       (setq-local browse-url-browser-function 'eww-browse-url)
       (setq tab-width 22)
       (setq buffer-read-only t)
+      ;; Place point somewhere it doesn't cover a character.
       (goto-char (point-min))
-      (forward-line 3))))
+      (re-search-forward "\n$" nil nil 2))))
 
 (defun fancy-splash-frame ()
   "Return the frame to use for the fancy splash screen.
@@ -2107,8 +2148,11 @@ To quit a partially entered command, type Control-g.\n")
 		 'follow-link t)
   (insert "\tChange initialization settings including this screen\n")
 
-  (insert "\n" (emacs-version)
-	  "\n" emacs-copyright))
+  (save-restriction
+    (narrow-to-region (point) (point))
+    (insert "\n" (emacs-version) "\n")
+    (fill-region (point-min) (point-max)))
+  (insert emacs-copyright))
 
 (defun normal-no-mouse-startup-screen ()
   "Show a splash screen suitable for displays without mouse support."
@@ -2188,7 +2232,11 @@ If you have no Meta key, you may instead type ESC followed by the character.)"))
                                        (startup--get-buffer-create-scratch)))
 		 'follow-link t)
   (insert "\n")
-  (insert "\n" (emacs-version) "\n" emacs-copyright "\n")
+  (save-restriction
+    (narrow-to-region (point) (point))
+    (insert "\n" (emacs-version) "\n")
+    (fill-region (point-min) (point-max)))
+  (insert emacs-copyright "\n")
   (insert (substitute-command-keys
 	   "
 GNU Emacs comes with ABSOLUTELY NO WARRANTY; type \\[describe-no-warranty] for "))
@@ -2369,6 +2417,7 @@ A fancy display is used on graphic displays, normal otherwise."
                ;; and long versions of what's on command-switch-alist.
                (longopts
                 (append '("--funcall" "--load" "--insert" "--kill"
+                          "--dump-file" "--seccomp"
                           "--directory" "--eval" "--execute" "--no-splash"
                           "--find-file" "--visit" "--file" "--no-desktop")
                         (mapcar (lambda (elt) (concat "-" (car elt)))
@@ -2391,6 +2440,7 @@ nil default-directory" name)
 				  (command-line-normalize-file-name name)
 				  dir))
 			   (buf (find-file-noselect file)))
+                      (file-name-history--add file)
 		      (setq displayable-buffers (cons buf displayable-buffers))
                       ;; Set the file buffer to the current buffer so
                       ;; that it will be used with "--eval" and
@@ -2511,7 +2561,15 @@ nil default-directory" name)
                      (let* ((file (command-line-normalize-file-name
                                    (or argval (pop command-line-args-left))))
                             ;; Take file from default dir.
-                            (file-ex (file-truename (expand-file-name file))))
+                            (file-ex (expand-file-name file))
+                            (truename (file-truename file-ex)))
+                       ;; We want to use the truename here if we can,
+                       ;; because that makes `eval-after-load' work
+                       ;; more reliably.  But if the file is, for
+                       ;; instance, /dev/stdin, the truename doesn't
+                       ;; actually exist on some systems.
+                       (when (file-exists-p truename)
+                         (setq file-ex truename))
                        (load file-ex nil t t)))
 
                     ((equal argi "-insert")
@@ -2520,6 +2578,11 @@ nil default-directory" name)
                      (or (stringp tem)
                          (error "File name omitted from `-insert' option"))
                      (insert-file-contents (command-line-normalize-file-name tem)))
+
+                    ((or (equal argi "-dump-file")
+                         (equal argi "-seccomp"))
+                     ;; This was processed in C.
+                     (or argval (pop command-line-args-left)))
 
                     ((equal argi "-kill")
                      (kill-emacs t))

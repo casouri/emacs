@@ -225,8 +225,6 @@ ftfont_pattern_entity (FcPattern *p, Lisp_Object extra)
     }
   if (FcPatternGetInteger (p, FC_WEIGHT, 0, &numeric) == FcResultMatch)
     {
-      if (numeric >= FC_WEIGHT_REGULAR && numeric < FC_WEIGHT_MEDIUM)
-	numeric = FC_WEIGHT_MEDIUM;
       FONT_SET_STYLE (entity, FONT_WEIGHT_INDEX, make_fixnum (numeric));
     }
   if (FcPatternGetInteger (p, FC_SLANT, 0, &numeric) == FcResultMatch)
@@ -2798,10 +2796,31 @@ ftfont_shape_by_flt (Lisp_Object lgstring, struct font *font,
 
   if (gstring.used > LGSTRING_GLYPH_LEN (lgstring))
     return Qnil;
+
+  /* mflt_run may fail to set g->g.to (which must be a valid index
+     into lgstring) correctly if the font has an OTF table that is
+     different from what the m17n library expects. */
   for (i = 0; i < gstring.used; i++)
     {
       MFLTGlyphFT *g = (MFLTGlyphFT *) (gstring.glyphs) + i;
+      if (g->g.to >= len)
+	{
+	  /* Invalid g->g.to. */
+	  g->g.to = len - 1;
+	  int from = g->g.from;
+	  /* Fix remaining glyphs. */
+	  for (++i; i < gstring.used; i++)
+	    {
+	      g = (MFLTGlyphFT *) (gstring.glyphs) + i;
+	      g->g.from = from;
+	      g->g.to = len - 1;
+	    }
+	}
+    }
 
+  for (i = 0; i < gstring.used; i++)
+    {
+      MFLTGlyphFT *g = (MFLTGlyphFT *) (gstring.glyphs) + i;
       g->g.from = LGLYPH_FROM (LGSTRING_GLYPH (lgstring, g->g.from));
       g->g.to = LGLYPH_TO (LGSTRING_GLYPH (lgstring, g->g.to));
     }
@@ -3088,6 +3107,10 @@ syms_of_ftfont (void)
   DEFSYM (Qfreetypehb, "freetypehb");
   Fput (Qfreetype, Qfont_driver_superseded_by, Qfreetypehb);
 #endif	/* HAVE_HARFBUZZ */
+
+#ifdef HAVE_HAIKU
+  DEFSYM (Qmono, "mono");
+#endif
 
   /* Fontconfig's generic families and their aliases.  */
   DEFSYM (Qmonospace, "monospace");

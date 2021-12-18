@@ -39,6 +39,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/time.h>
 #include <sys/utime.h>
 #include <math.h>
+#include <nproc.h>
 
 /* Include (most) CRT headers *before* ms-w32.h.  */
 #include <ms-w32.h>
@@ -1962,6 +1963,16 @@ w32_get_nproc (void)
   return num_of_processors;
 }
 
+/* Emulate Gnulib's 'num_processors'.  We cannot use the Gnulib
+   version because it unconditionally calls APIs that aren't available
+   on old MS-Windows versions.  */
+unsigned long
+num_processors (enum nproc_query query)
+{
+  /* We ignore QUERY.  */
+  return w32_get_nproc ();
+}
+
 static void
 sample_system_load (ULONGLONG *idle, ULONGLONG *kernel, ULONGLONG *user)
 {
@@ -2389,8 +2400,13 @@ rand_as183 (void)
 int
 random (void)
 {
-  /* rand_as183 () gives us 15 random bits...hack together 30 bits.  */
+  /* rand_as183 () gives us 15 random bits...hack together 30 bits for
+     Emacs with 32-bit EMACS_INT, and at least 31 bit for wider EMACS_INT.  */
+#if EMACS_INT_MAX > INT_MAX
+  return ((rand_as183 () << 30) | (rand_as183 () << 15) | rand_as183 ());
+#else
   return ((rand_as183 () << 15) | rand_as183 ());
+#endif
 }
 
 void
@@ -2804,53 +2820,6 @@ sys_putenv (char *str)
 
 #define REG_ROOT "SOFTWARE\\GNU\\Emacs"
 
-LPBYTE
-w32_get_resource (const char *key, LPDWORD lpdwtype)
-{
-  LPBYTE lpvalue;
-  HKEY hrootkey = NULL;
-  DWORD cbData;
-
-  /* Check both the current user and the local machine to see if
-     we have any resources.  */
-
-  if (RegOpenKeyEx (HKEY_CURRENT_USER, REG_ROOT, 0, KEY_READ, &hrootkey) == ERROR_SUCCESS)
-    {
-      lpvalue = NULL;
-
-      if (RegQueryValueEx (hrootkey, key, NULL, NULL, NULL, &cbData) == ERROR_SUCCESS
-	  && (lpvalue = xmalloc (cbData)) != NULL
-	  && RegQueryValueEx (hrootkey, key, NULL, lpdwtype, lpvalue, &cbData) == ERROR_SUCCESS)
-	{
-          RegCloseKey (hrootkey);
-	  return (lpvalue);
-	}
-
-      xfree (lpvalue);
-
-      RegCloseKey (hrootkey);
-    }
-
-  if (RegOpenKeyEx (HKEY_LOCAL_MACHINE, REG_ROOT, 0, KEY_READ, &hrootkey) == ERROR_SUCCESS)
-    {
-      lpvalue = NULL;
-
-      if (RegQueryValueEx (hrootkey, key, NULL, NULL, NULL, &cbData) == ERROR_SUCCESS
-	  && (lpvalue = xmalloc (cbData)) != NULL
-	  && RegQueryValueEx (hrootkey, key, NULL, lpdwtype, lpvalue, &cbData) == ERROR_SUCCESS)
-	{
-          RegCloseKey (hrootkey);
-	  return (lpvalue);
-	}
-
-      xfree (lpvalue);
-
-      RegCloseKey (hrootkey);
-    }
-
-  return (NULL);
-}
-
 /* The argv[] array holds ANSI-encoded strings, and so this function
    works with ANS_encoded strings.  */
 void
@@ -3061,7 +3030,7 @@ init_environment (char ** argv)
 	    int dont_free = 0;
 	    char bufc[SET_ENV_BUF_SIZE];
 
-	    if ((lpval = w32_get_resource (env_vars[i].name, &dwType)) == NULL
+	    if ((lpval = w32_get_resource (REG_ROOT, env_vars[i].name, &dwType)) == NULL
 		/* Also ignore empty environment variables.  */
 		|| *lpval == 0)
 	      {
@@ -6579,7 +6548,8 @@ acl_get_file (const char *fname, acl_type_t type)
 		  xfree (psd);
 		  err = GetLastError ();
 		  if (err == ERROR_NOT_SUPPORTED
-		      || err == ERROR_ACCESS_DENIED)
+		      || err == ERROR_ACCESS_DENIED
+		      || err == ERROR_INVALID_FUNCTION)
 		    errno = ENOTSUP;
 		  else if (err == ERROR_FILE_NOT_FOUND
 			   || err == ERROR_PATH_NOT_FOUND
@@ -6598,10 +6568,11 @@ acl_get_file (const char *fname, acl_type_t type)
 		   || err == ERROR_INVALID_NAME)
 	    errno = ENOENT;
 	  else if (err == ERROR_NOT_SUPPORTED
-		   /* ERROR_ACCESS_DENIED is what we get for a volume
-		      mounted by WebDAV, which evidently doesn't
-		      support ACLs.  */
-		   || err == ERROR_ACCESS_DENIED)
+		   /* ERROR_ACCESS_DENIED or ERROR_INVALID_FUNCTION is
+		      what we get for a volume mounted by WebDAV,
+		      which evidently doesn't support ACLs.  */
+		   || err == ERROR_ACCESS_DENIED
+		   || err == ERROR_INVALID_FUNCTION)
 	    errno = ENOTSUP;
 	  else
 	    errno = EIO;
@@ -8577,7 +8548,7 @@ fcntl (int s, int cmd, int options)
 int
 sys_close (int fd)
 {
-  int rc;
+  int rc = -1;
 
   if (fd < 0)
     {
@@ -8632,14 +8603,31 @@ sys_close (int fd)
 	}
     }
 
-  if (fd >= 0 && fd < MAXDESC)
-    fd_info[fd].flags = 0;
-
   /* Note that sockets do not need special treatment here (at least on
      NT and Windows 95 using the standard tcp/ip stacks) - it appears that
      closesocket is equivalent to CloseHandle, which is to be expected
      because socket handles are fully fledged kernel handles. */
-  rc = _close (fd);
+  if (fd < MAXDESC)
+    {
+      if ((fd_info[fd].flags & FILE_DONT_CLOSE) == 0)
+	{
+	  fd_info[fd].flags = 0;
+	  rc = _close (fd);
+	}
+      else
+	{
+	  /* We don't close here descriptors open by pipe processes
+	     for reading from the pipe, because the reader thread
+	     might be stuck in _sys_read_ahead, and then we will hang
+	     here.  If the reader thread exits normally, it will close
+	     the descriptor; otherwise we will leave a zombie thread
+	     hanging around.  */
+	  rc = 0;
+	  /* Leave the flag set for the reader thread to close the
+	     descriptor.  */
+	  fd_info[fd].flags = FILE_DONT_CLOSE;
+	}
+    }
 
   return rc;
 }
@@ -8753,7 +8741,7 @@ int
 _sys_read_ahead (int fd)
 {
   child_process * cp;
-  int rc;
+  int rc = 0;
 
   if (fd < 0 || fd >= MAXDESC)
     return STATUS_READ_ERROR;
@@ -10927,6 +10915,7 @@ register_aux_fd (int infd)
     }
   fd_info[ infd ].cp = cp;
   fd_info[ infd ].hnd = (HANDLE) _get_osfhandle (infd);
+  fd_info[ infd ].flags |= FILE_DONT_CLOSE;
 }
 
 #ifdef HAVE_GNUTLS

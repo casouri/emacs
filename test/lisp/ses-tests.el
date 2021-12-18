@@ -24,6 +24,10 @@
 (require 'ert)
 (require 'ses)
 
+;; Silence byte-compiler.
+(with-suppressed-warnings ((lexical A2) (lexical A3))
+  (defvar A2)
+  (defvar A3))
 
 ;; PLAIN FORMULA TESTS
 ;; ======================================================================
@@ -175,3 +179,5 @@ to `ses--bar' and inserting a row, makes A2 value empty, and `ses--bar' equal to
 
 
 (provide 'ses-tests)
+
+;;; ses-tests.el ends here

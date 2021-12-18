@@ -263,6 +263,8 @@ for example, (type-of 1) returns `integer'.  */)
 	  return Qtree_sitter_parser;
 	case PVEC_TS_NODE:
 	  return Qtree_sitter_node;
+        case PVEC_SQLITE:
+          return Qsqlite;
         /* "Impossible" cases.  */
 	case PVEC_MISC_PTR:
         case PVEC_OTHER:
@@ -585,8 +587,8 @@ DEFUN ("condition-variable-p", Fcondition_variable_p, Scondition_variable_p,
 /* Extract and set components of lists.  */
 
 DEFUN ("car", Fcar, Scar, 1, 1, 0,
-       doc: /* Return the car of LIST.  If arg is nil, return nil.
-Error if arg is not nil and not a cons cell.  See also `car-safe'.
+       doc: /* Return the car of LIST.  If LIST is nil, return nil.
+Error if LIST is not nil and not a cons cell.  See also `car-safe'.
 
 See Info node `(elisp)Cons Cells' for a discussion of related basic
 Lisp concepts such as car, cdr, cons cell and list.  */)
@@ -603,8 +605,8 @@ DEFUN ("car-safe", Fcar_safe, Scar_safe, 1, 1, 0,
 }
 
 DEFUN ("cdr", Fcdr, Scdr, 1, 1, 0,
-       doc: /* Return the cdr of LIST.  If arg is nil, return nil.
-Error if arg is not nil and not a cons cell.  See also `cdr-safe'.
+       doc: /* Return the cdr of LIST.  If LIST is nil, return nil.
+Error if LIST is not nil and not a cons cell.  See also `cdr-safe'.
 
 See Info node `(elisp)Cons Cells' for a discussion of related basic
 Lisp concepts such as cdr, car, cons cell and list.  */)
@@ -685,7 +687,7 @@ global value outside of any lexical scope.  */)
 /* It has been previously suggested to make this function an alias for
    symbol-function, but upon discussion at Bug#23957, there is a risk
    breaking backward compatibility, as some users of fboundp may
-   expect `t' in particular, rather than any true value.  */
+   expect t in particular, rather than any true value.  */
 DEFUN ("fboundp", Ffboundp, Sfboundp, 1, 1, 0,
        doc: /* Return t if SYMBOL's function definition is not void.  */)
   (Lisp_Object symbol)
@@ -895,9 +897,11 @@ function or t otherwise.  */)
 {
   CHECK_SUBR (subr);
 
-  return SUBR_NATIVE_COMPILED_DYNP (subr)
-    ? XSUBR (subr)->lambda_list[0]
-    : Qt;
+#ifdef HAVE_NATIVE_COMP
+  if (SUBR_NATIVE_COMPILED_DYNP (subr))
+    return XSUBR (subr)->lambda_list;
+#endif
+  return Qt;
 }
 
 DEFUN ("subr-type", Fsubr_type,
@@ -921,7 +925,7 @@ DEFUN ("subr-native-comp-unit", Fsubr_native_comp_unit,
   (Lisp_Object subr)
 {
   CHECK_SUBR (subr);
-  return XSUBR (subr)->native_comp_u[0];
+  return XSUBR (subr)->native_comp_u;
 }
 
 DEFUN ("native-comp-unit-file", Fnative_comp_unit_file,
@@ -1049,6 +1053,8 @@ The value, if non-nil, is a list of mode name symbols.  */)
 
   if (COMPILEDP (fun))
     {
+      if (PVSIZE (fun) <= COMPILED_INTERACTIVE)
+	return Qnil;
       Lisp_Object form = AREF (fun, COMPILED_INTERACTIVE);
       if (VECTORP (form))
 	/* New form -- the second element is the command modes. */
@@ -3905,6 +3911,7 @@ syms_of_data (void)
   DEFSYM (Qerror, "error");
   DEFSYM (Quser_error, "user-error");
   DEFSYM (Qquit, "quit");
+  DEFSYM (Qminibuffer_quit, "minibuffer-quit");
   DEFSYM (Qwrong_length_argument, "wrong-length-argument");
   DEFSYM (Qwrong_type_argument, "wrong-type-argument");
   DEFSYM (Qargs_out_of_range, "args-out-of-range");
@@ -3977,6 +3984,7 @@ syms_of_data (void)
   Fput (sym, Qerror_message, build_pure_c_string (msg))
 
   PUT_ERROR (Qquit, Qnil, "Quit");
+  PUT_ERROR (Qminibuffer_quit, pure_cons (Qquit, Qnil), "Quit");
 
   PUT_ERROR (Quser_error, error_tail, "");
   PUT_ERROR (Qwrong_length_argument, error_tail, "Wrong length argument");

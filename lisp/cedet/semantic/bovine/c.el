@@ -1466,36 +1466,32 @@ Override function for `semantic-tag-protection'."
 	(prot nil))
     ;; Check the modifiers for protection if we are not a child
     ;; of some class type.
-    (when (or (not parent) (not (eq (semantic-tag-class parent) 'type)))
-      (while (and (not prot) mods)
-	(if (stringp (car mods))
-	    (let ((s (car mods)))
-	      ;; A few silly defaults to get things started.
-	      (cond ((or (string= s "extern")
-			 (string= s "export"))
-		     'public)
-		    ((string= s "static")
-		     'private))))
-	(setq mods (cdr mods))))
-    ;; If we have a typed parent, look for :public style labels.
-    (when (and parent (eq (semantic-tag-class parent) 'type))
+    (if (not (and parent (eq (semantic-tag-class parent) 'type)))
+	(while (and (not prot) mods)
+	  (if (stringp (car mods))
+	      (let ((s (car mods)))
+	        ;; A few silly defaults to get things started.
+	        (setq prot (pcase s
+			     ((or "extern" "export") 'public)
+			     ("static" 'private)))))
+	  (setq mods (cdr mods)))
+      ;; If we have a typed parent, look for :public style labels.
       (let ((pp (semantic-tag-type-members parent)))
 	(while (and pp (not (semantic-equivalent-tag-p (car pp) tag)))
 	  (when (eq (semantic-tag-class (car pp)) 'label)
 	    (setq prot
-		  (cond ((string= (semantic-tag-name (car pp)) "public")
-			 'public)
-			((string= (semantic-tag-name (car pp)) "private")
-			 'private)
-			((string= (semantic-tag-name (car pp)) "protected")
-			 'protected)))
+		  (pcase (semantic-tag-name (car pp))
+		    ("public" 'public)
+		    ("private" 'private)
+		    ("protected" 'protected)))
 	    )
 	  (setq pp (cdr pp)))))
     (when (and (not prot) (eq (semantic-tag-class parent) 'type))
       (setq prot
-	    (cond ((string= (semantic-tag-type parent) "class") 'private)
-		  ((string= (semantic-tag-type parent) "struct") 'public)
-		  (t 'unknown))))
+	    (pcase (semantic-tag-type parent)
+	      ("class" 'private)
+	      ("struct" 'public)
+	      (_ 'unknown))))
     (or prot
 	(if (and parent (semantic-tag-of-class-p parent 'type))
 	    'public
@@ -1937,7 +1933,7 @@ For types with a :parent, create faux namespaces to put TAG into."
 
 (define-mode-local-override semanticdb-find-table-for-include c-mode
   (includetag &optional table)
-  "For a single INCLUDETAG found in TABLE, find a `semanticdb-table' object
+  "For a single INCLUDETAG found in TABLE, find a `semanticdb-table' object.
 INCLUDETAG is a semantic TAG of class `include'.
 TABLE is a semanticdb table that identifies where INCLUDETAG came from.
 TABLE is optional if INCLUDETAG has an overlay of :filename attribute.
@@ -2034,7 +2030,7 @@ for arguments compared."
   (if blankok t (semantic--tag-similar-names-p-default tag1 tag2 nil)))
 
 (define-mode-local-override semantic--tag-similar-types-p c-mode (tag1 tag2)
-  "For c-mode, deal with TAG1 and TAG2 being used in different namespaces.
+  "For `c-mode', deal with TAG1 and TAG2 being used in different namespaces.
 In this case, one type will be shorter than the other.  Instead
 of fully resolving all namespaces currently in scope for both
 types, we simply compare as many elements as the shorter type
@@ -2064,7 +2060,7 @@ provides."
 
 (define-mode-local-override semantic--tag-attribute-similar-p c-mode
   (attr value1 value2 ignorable-attributes)
-  "For c-mode, allow function :arguments to ignore the :name attributes."
+  "For `c-mode', allow function :arguments to ignore the :name attributes."
   (cond ((eq attr :arguments)
 	 (semantic--tag-attribute-similar-p-default attr value1 value2
 						    (cons :name ignorable-attributes)))

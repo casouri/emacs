@@ -62,19 +62,259 @@
                       (0 font-lock-keyword-face))))))))
 
 
+;;;; List functions.
+
+(ert-deftest subr-test-caaar ()
+  (should (null (caaar '())))
+  (should (null (caaar '(() (2)))))
+  (should (null (caaar '((() (2)) (a b)))))
+  (should-error (caaar '(1 2)) :type 'wrong-type-argument)
+  (should-error (caaar '((1 2))) :type 'wrong-type-argument)
+  (should (=  1 (caaar '(((1 2) (3 4))))))
+  (should (null (caaar '((() (3 4)))))))
+
+(ert-deftest subr-test-caadr ()
+  (should (null (caadr '())))
+  (should (null (caadr '(1))))
+  (should-error (caadr '(1 2)) :type 'wrong-type-argument)
+  (should (= 2 (caadr '(1 (2 3)))))
+  (should (equal '((2) (3)) (caadr '((1) (((2) (3))) (4))))))
+
+
 ;;;; Keymap support.
 
 (ert-deftest subr-test-kbd ()
+  (should (equal (kbd "") ""))
   (should (equal (kbd "f") "f"))
+  (should (equal (kbd "X") "X"))
+  (should (equal (kbd "foobar") "foobar")) ; 6 characters
+  (should (equal (kbd "return") "return")) ; 6 characters
+
+  (should (equal (kbd "<F2>") [F2]))
+  (should (equal (kbd "<f1> <f2> TAB") [f1 f2 ?\t]))
+  (should (equal (kbd "<f1> RET") [f1 ?\r]))
+  (should (equal (kbd "<f1> SPC") [f1 ? ]))
   (should (equal (kbd "<f1>") [f1]))
-  (should (equal (kbd "RET") "\C-m"))
+  (should (equal (kbd "<f1>") [f1]))
+  (should (equal (kbd "[f1]") "[f1]"))
+  (should (equal (kbd "<return>") [return]))
+  (should (equal (kbd "< right >") "<right>")) ; 7 characters
+
+  ;; Modifiers:
+  (should (equal (kbd "C-x") "\C-x"))
   (should (equal (kbd "C-x a") "\C-xa"))
-  ;; Check that kbd handles both new and old style key descriptions
-  ;; (bug#45536).
+  (should (equal (kbd "C-;") [?\C-\;]))
+  (should (equal (kbd "C-a") "\C-a"))
+  (should (equal (kbd "C-c SPC") "\C-c "))
+  (should (equal (kbd "C-c TAB") "\C-c\t"))
+  (should (equal (kbd "C-c c") "\C-cc"))
+  (should (equal (kbd "C-x 4 C-f") "\C-x4\C-f"))
+  (should (equal (kbd "C-x C-f") "\C-x\C-f"))
+  (should (equal (kbd "C-M-<down>") [C-M-down]))
+  (should (equal (kbd "<C-M-down>") [C-M-down]))
+  (should (equal (kbd "C-RET") [?\C-\C-m]))
+  (should (equal (kbd "C-SPC") [?\C- ]))
+  (should (equal (kbd "C-TAB") [?\C-\t]))
+  (should (equal (kbd "C-<down>") [C-down]))
+  (should (equal (kbd "C-c C-c C-c") "\C-c\C-c\C-c"))
+
+  (should (equal (kbd "M-a") [?\M-a]))
+  (should (equal (kbd "M-<DEL>") [?\M-\d]))
+  (should (equal (kbd "M-C-a") [?\M-\C-a]))
+  (should (equal (kbd "M-ESC") [?\M-\e]))
+  (should (equal (kbd "M-RET") [?\M-\r]))
+  (should (equal (kbd "M-SPC") [?\M- ]))
+  (should (equal (kbd "M-TAB") [?\M-\t]))
+  (should (equal (kbd "M-x a") [?\M-x ?a]))
+  (should (equal (kbd "M-<up>") [M-up]))
+  (should (equal (kbd "M-c M-c M-c") [?\M-c ?\M-c ?\M-c]))
+
+  (should (equal (kbd "s-SPC") [?\s- ]))
+  (should (equal (kbd "s-a") [?\s-a]))
+  (should (equal (kbd "s-x a") [?\s-x ?a]))
+  (should (equal (kbd "s-c s-c s-c") [?\s-c ?\s-c ?\s-c]))
+
+  (should (equal (kbd "S-H-a") [?\S-\H-a]))
+  (should (equal (kbd "S-a") [?\S-a]))
+  (should (equal (kbd "S-x a") [?\S-x ?a]))
+  (should (equal (kbd "S-c S-c S-c") [?\S-c ?\S-c ?\S-c]))
+
+  (should (equal (kbd "H-<RET>") [?\H-\r]))
+  (should (equal (kbd "H-DEL") [?\H-\d]))
+  (should (equal (kbd "H-a") [?\H-a]))
+  (should (equal (kbd "H-x a") [?\H-x ?a]))
+  (should (equal (kbd "H-c H-c H-c") [?\H-c ?\H-c ?\H-c]))
+
+  (should (equal (kbd "A-H-a") [?\A-\H-a]))
+  (should (equal (kbd "A-SPC") [?\A- ]))
+  (should (equal (kbd "A-TAB") [?\A-\t]))
+  (should (equal (kbd "A-a") [?\A-a]))
+  (should (equal (kbd "A-c A-c A-c") [?\A-c ?\A-c ?\A-c]))
+
+  (should (equal (kbd "C-M-a") [?\C-\M-a]))
+  (should (equal (kbd "C-M-<up>") [C-M-up]))
+
+  ;; Special characters.
+  (should (equal (kbd "DEL") "\d"))
+  (should (equal (kbd "ESC C-a") "\e\C-a"))
+  (should (equal (kbd "ESC") "\e"))
+  (should (equal (kbd "LFD") "\n"))
+  (should (equal (kbd "NUL") "\0"))
+  (should (equal (kbd "RET") "\C-m"))
+  (should (equal (kbd "SPC") "\s"))
+  (should (equal (kbd "TAB") "\t"))
+  (should (equal (kbd "\^i") ""))
+  (should (equal (kbd "^M") "\^M"))
+
+  ;; With numbers.
+  (should (equal (kbd "\177") "\^?"))
+  (should (equal (kbd "\000") "\0"))
+  (should (equal (kbd "\\177") "\^?"))
+  (should (equal (kbd "\\000") "\0"))
+  (should (equal (kbd "C-x \\150") "\C-xh"))
+
+  ;; Multibyte
+  (should (equal (kbd "ñ") [?ñ]))
+  (should (equal (kbd "ü") [?ü]))
+  (should (equal (kbd "ö") [?ö]))
+  (should (equal (kbd "ğ") [?ğ]))
+  (should (equal (kbd "ա") [?ա]))
+  (should (equal (kbd "üüöö") [?ü ?ü ?ö ?ö]))
+  (should (equal (kbd "C-ü") [?\C-ü]))
+  (should (equal (kbd "M-ü") [?\M-ü]))
+  (should (equal (kbd "H-ü") [?\H-ü]))
+
+  ;; Handle both new and old style key descriptions (bug#45536).
   (should (equal (kbd "s-<return>") [s-return]))
   (should (equal (kbd "<s-return>") [s-return]))
   (should (equal (kbd "C-M-<return>") [C-M-return]))
-  (should (equal (kbd "<C-M-return>") [C-M-return])))
+  (should (equal (kbd "<C-M-return>") [C-M-return]))
+
+  ;; Error.
+  (should-error (kbd "C-xx"))
+  (should-error (kbd "M-xx"))
+  (should-error (kbd "M-x<TAB>"))
+
+  ;; These should be equivalent:
+  (should (equal (kbd "\C-xf") (kbd "C-x f"))))
+
+(ert-deftest subr-test-key-valid-p ()
+  (should (not (key-valid-p "")))
+  (should (key-valid-p "f"))
+  (should (key-valid-p "X"))
+  (should (not (key-valid-p " X")))
+  (should (key-valid-p "X f"))
+  (should (not (key-valid-p "a  b")))
+  (should (not (key-valid-p "foobar")))
+  (should (not (key-valid-p "return")))
+
+  (should (key-valid-p "<F2>"))
+  (should (key-valid-p "<f1> <f2> TAB"))
+  (should (key-valid-p "<f1> RET"))
+  (should (key-valid-p "<f1> SPC"))
+  (should (key-valid-p "<f1>"))
+  (should (not (key-valid-p "[f1]")))
+  (should (key-valid-p "<return>"))
+  (should (not (key-valid-p "< right >")))
+
+  ;; Modifiers:
+  (should (key-valid-p "C-x"))
+  (should (key-valid-p "C-x a"))
+  (should (key-valid-p "C-;"))
+  (should (key-valid-p "C-a"))
+  (should (key-valid-p "C-c SPC"))
+  (should (key-valid-p "C-c TAB"))
+  (should (key-valid-p "C-c c"))
+  (should (key-valid-p "C-x 4 C-f"))
+  (should (key-valid-p "C-x C-f"))
+  (should (key-valid-p "C-M-<down>"))
+  (should (not (key-valid-p "<C-M-down>")))
+  (should (key-valid-p "C-RET"))
+  (should (key-valid-p "C-SPC"))
+  (should (key-valid-p "C-TAB"))
+  (should (key-valid-p "C-<down>"))
+  (should (key-valid-p "C-c C-c C-c"))
+
+  (should (key-valid-p "M-a"))
+  (should (key-valid-p "M-<DEL>"))
+  (should (not (key-valid-p "M-C-a")))
+  (should (key-valid-p "C-M-a"))
+  (should (key-valid-p "M-ESC"))
+  (should (key-valid-p "M-RET"))
+  (should (key-valid-p "M-SPC"))
+  (should (key-valid-p "M-TAB"))
+  (should (key-valid-p "M-x a"))
+  (should (key-valid-p "M-<up>"))
+  (should (key-valid-p "M-c M-c M-c"))
+
+  (should (key-valid-p "s-SPC"))
+  (should (key-valid-p "s-a"))
+  (should (key-valid-p "s-x a"))
+  (should (key-valid-p "s-c s-c s-c"))
+
+  (should (not (key-valid-p "S-H-a")))
+  (should (key-valid-p "S-a"))
+  (should (key-valid-p "S-x a"))
+  (should (key-valid-p "S-c S-c S-c"))
+
+  (should (key-valid-p "H-<RET>"))
+  (should (key-valid-p "H-DEL"))
+  (should (key-valid-p "H-a"))
+  (should (key-valid-p "H-x a"))
+  (should (key-valid-p "H-c H-c H-c"))
+
+  (should (key-valid-p "A-H-a"))
+  (should (key-valid-p "A-SPC"))
+  (should (key-valid-p "A-TAB"))
+  (should (key-valid-p "A-a"))
+  (should (key-valid-p "A-c A-c A-c"))
+
+  (should (key-valid-p "C-M-a"))
+  (should (key-valid-p "C-M-<up>"))
+
+  ;; Special characters.
+  (should (key-valid-p "DEL"))
+  (should (key-valid-p "ESC C-a"))
+  (should (key-valid-p "ESC"))
+  (should (key-valid-p "LFD"))
+  (should (key-valid-p "NUL"))
+  (should (key-valid-p "RET"))
+  (should (key-valid-p "SPC"))
+  (should (key-valid-p "TAB"))
+  (should (not (key-valid-p "\^i")))
+  (should (not (key-valid-p "^M")))
+
+  ;; With numbers.
+  (should (not (key-valid-p "\177")))
+  (should (not (key-valid-p "\000")))
+  (should (not (key-valid-p "\\177")))
+  (should (not (key-valid-p "\\000")))
+  (should (not (key-valid-p "C-x \\150")))
+
+  ;; Multibyte
+  (should (key-valid-p "ñ"))
+  (should (key-valid-p "ü"))
+  (should (key-valid-p "ö"))
+  (should (key-valid-p "ğ"))
+  (should (key-valid-p "ա"))
+  (should (not (key-valid-p "üüöö")))
+  (should (key-valid-p "C-ü"))
+  (should (key-valid-p "M-ü"))
+  (should (key-valid-p "H-ü"))
+
+  ;; Handle both new and old style key descriptions (bug#45536).
+  (should (key-valid-p "s-<return>"))
+  (should (not (key-valid-p "<s-return>")))
+  (should (key-valid-p "C-M-<return>"))
+  (should (not (key-valid-p "<C-M-return>")))
+
+  (should (key-valid-p "<mouse-1>"))
+  (should (key-valid-p "<Scroll_Lock>"))
+
+  (should (not (key-valid-p "c-x")))
+  (should (not (key-valid-p "C-xx")))
+  (should (not (key-valid-p "M-xx")))
+  (should (not (key-valid-p "M-x<TAB>"))))
 
 (ert-deftest subr-test-define-prefix-command ()
   (define-prefix-command 'foo-prefix-map)
@@ -371,12 +611,13 @@ indirectly `mapbacktrace'."
 (ert-deftest subr-tests--dolist--wrong-number-of-args ()
   "Test that `dolist' doesn't accept wrong types or length of SPEC,
 cf. Bug#25477."
-  (should-error (eval '(dolist (a)))
-                :type 'wrong-number-of-arguments)
-  (should-error (eval '(dolist (a () 'result 'invalid)) t)
-                :type 'wrong-number-of-arguments)
-  (should-error (eval '(dolist "foo") t)
-                :type 'wrong-type-argument))
+  (dolist (lb '(nil t))
+    (should-error (eval '(dolist (a)) lb)
+                  :type 'wrong-number-of-arguments)
+    (should-error (eval '(dolist (a () 'result 'invalid)) lb)
+                  :type 'wrong-number-of-arguments)
+    (should-error (eval '(dolist "foo") lb)
+                  :type 'wrong-type-argument)))
 
 (ert-deftest subr-tests-bug22027 ()
   "Test for https://debbugs.gnu.org/22027 ."
@@ -473,11 +714,11 @@ See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=19350."
   (should (equal subr-tests--hook '(f5 f2 f1 f4 f3)))
   (add-hook 'subr-tests--hook 'f6)
   (should (equal subr-tests--hook '(f5 f6 f2 f1 f4 f3)))
-  ;; Make sure `t' is equivalent to 90.
+  ;; Make sure t is equivalent to 90.
   (add-hook 'subr-tests--hook 'f7 90)
   (add-hook 'subr-tests--hook 'f8 t)
   (should (equal subr-tests--hook '(f5 f6 f2 f1 f4 f3 f7 f8)))
-  ;; Make sue `nil' is equivalent to 0.
+  ;; Make sure nil is equivalent to 0.
   (add-hook 'subr-tests--hook 'f9 0)
   (add-hook 'subr-tests--hook 'f10)
   (should (equal subr-tests--hook '(f5 f10 f9 f6 f2 f1 f4 f3 f7 f8)))
@@ -685,6 +926,7 @@ See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=19350."
   (should-not (apropos-internal "^next-line$" #'keymapp)))
 
 
+(defvar test-global-boundp)
 (ert-deftest test-buffer-local-boundp ()
   (let ((buf (generate-new-buffer "boundp")))
     (with-current-buffer buf
@@ -693,6 +935,77 @@ See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=19350."
     (should (buffer-local-boundp 'test-boundp buf))
     (should-not (buffer-local-boundp 'test-not-boundp buf))
     (should (buffer-local-boundp 'test-global-boundp buf))))
+
+(ert-deftest test-replace-string-in-region ()
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should (= (replace-string-in-region "foo" "new" (point-min) (point-max))
+               2))
+    (should (equal (buffer-string) "new bar zot newbar")))
+
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should (= (replace-string-in-region "foo" "new" (point-min) 14)
+               1))
+    (should (equal (buffer-string) "new bar zot foobar")))
+
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should-error (replace-string-in-region "foo" "new" (point-min) 30)))
+
+  (with-temp-buffer
+    (insert "Foo bar zot foobar")
+    (should (= (replace-string-in-region "Foo" "new" (point-min))
+               1))
+    (should (equal (buffer-string) "new bar zot foobar"))))
+
+(ert-deftest test-replace-regexp-in-region ()
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should (= (replace-regexp-in-region "fo+" "new" (point-min) (point-max))
+               2))
+    (should (equal (buffer-string) "new bar zot newbar")))
+
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should (= (replace-regexp-in-region "fo+" "new" (point-min) 14)
+               1))
+    (should (equal (buffer-string) "new bar zot foobar")))
+
+  (with-temp-buffer
+    (insert "foo bar zot foobar")
+    (should-error (replace-regexp-in-region "fo+" "new" (point-min) 30)))
+
+  (with-temp-buffer
+    (insert "Foo bar zot foobar")
+    (should (= (replace-regexp-in-region "Fo+" "new" (point-min))
+               1))
+    (should (equal (buffer-string) "new bar zot foobar"))))
+
+(ert-deftest test-with-existing-directory ()
+  (let ((dir (make-temp-name "/tmp/not-exist-")))
+    (let ((default-directory dir))
+      (should-not (file-exists-p default-directory)))
+    (with-existing-directory
+      (should-not (equal dir default-directory))
+      (should (file-exists-p default-directory)))))
+
+(ert-deftest subr-test-internal--format-docstring-line ()
+  (should
+   (string= (let ((fill-column 70))
+              (internal--format-docstring-line
+               "In addition to any hooks its parent mode might have run, this \
+mode runs the hook ‘foo-bar-baz-very-long-name-indeed-mode-hook’, as the final \
+or penultimate step during initialization."))
+            "In addition to any hooks its parent mode might have run, this mode
+runs the hook ‘foo-bar-baz-very-long-name-indeed-mode-hook’, as the
+final or penultimate step during initialization."))
+  (should-error (internal--format-docstring-line "foo\nbar")))
+
+(ert-deftest test-ensure-list ()
+  (should (equal (ensure-list nil) nil))
+  (should (equal (ensure-list :foo) '(:foo)))
+  (should (equal (ensure-list '(1 2 3)) '(1 2 3))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

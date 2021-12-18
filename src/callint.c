@@ -364,11 +364,14 @@ invoke it (via an `interactive' spec that contains, for instance, an
 
   /* The index of the next element of this_command_keys to examine for
      the 'e' interactive code.  Initialize it to point to the first
-     event with parameters.  */
-  ptrdiff_t next_event;
-  for (next_event = 0; next_event < key_count; next_event++)
-    if (EVENT_HAS_PARAMETERS (AREF (keys, next_event)))
-      break;
+     event with parameters.  When `inhibit_mouse_event_check' is non-nil,
+     the command can accept an event without parameters,
+     so don't search for the event with parameters in this case.  */
+  ptrdiff_t next_event = 0;
+  if (!inhibit_mouse_event_check)
+    for (; next_event < key_count; next_event++)
+      if (EVENT_HAS_PARAMETERS (AREF (keys, next_event)))
+	break;
 
   /* Handle special starting chars `*' and `@'.  Also `-'.  */
   /* Note that `+' is reserved for user extensions.  */
@@ -614,11 +617,15 @@ invoke it (via an `interactive' spec that contains, for instance, an
 	  args[i] = AREF (keys, next_event);
 	  varies[i] = -1;
 
-	  /* Find the next parameterized event.  */
-	  do
+	  /* `inhibit_mouse_event_check' allows non-parameterized events.  */
+	  if (inhibit_mouse_event_check)
 	    next_event++;
-	  while (next_event < key_count
-		 && ! EVENT_HAS_PARAMETERS (AREF (keys, next_event)));
+	  else
+	    /* Find the next parameterized event.  */
+	    do
+	      next_event++;
+	    while (next_event < key_count
+		   && ! EVENT_HAS_PARAMETERS (AREF (keys, next_event)));
 
 	  break;
 
@@ -892,10 +899,21 @@ behave as if the mark were still active.  */);
   Vmark_even_if_inactive = Qt;
 
   DEFVAR_LISP ("mouse-leave-buffer-hook", Vmouse_leave_buffer_hook,
-	       doc: /* Hook to run when about to switch windows with a mouse command.
+	       doc: /* Hook run when the user mouse-clicks in a window.
+It can be run both before and after switching windows, or even when
+not actually switching windows.
+
 Its purpose is to give temporary modes such as Isearch mode
 a way to turn themselves off when a mouse command switches windows.  */);
   Vmouse_leave_buffer_hook = Qnil;
+
+  DEFVAR_BOOL ("inhibit-mouse-event-check", inhibit_mouse_event_check,
+    doc: /* Whether the interactive spec "e" requires a mouse gesture event.
+If non-nil, `(interactive "e")' doesn't signal an error when the command
+was invoked by an input event that is not a mouse gesture: a click, a drag,
+etc.  To create the event data when the input was some other event,
+use `event-start', `event-end', and `event-click-count'.  */);
+  inhibit_mouse_event_check = false;
 
   defsubr (&Sinteractive);
   defsubr (&Scall_interactively);

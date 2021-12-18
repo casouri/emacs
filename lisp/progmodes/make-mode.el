@@ -257,7 +257,7 @@ not be enclosed in { } or ( )."
   "Regex used to highlight makepp rule action lines in font lock mode.")
 
 (defconst makefile-bsdmake-rule-action-regex
-  (replace-regexp-in-string "-@" "-+@" makefile-rule-action-regex)
+  (string-replace "-@" "-+@" makefile-rule-action-regex)
   "Regex used to highlight BSD rule action lines in font lock mode.")
 
 ;; Note that the first and second subexpression is used by font lock.  Note
@@ -272,7 +272,7 @@ not be enclosed in { } or ( )."
   "Regex used to find macro assignment lines in a makefile.")
 
 (defconst makefile-var-use-regex
-  "[^$]\\$[({]\\([-a-zA-Z0-9_.]+\\|[@%<?^+*][FD]?\\)"
+  "\\(^\\|[^$]\\)\\$[({]\\([-a-zA-Z0-9_.]+\\|[@%<?^+*][FD]?\\)"
   "Regex used to find $(macro) uses in a makefile.")
 
 (defconst makefile-ignored-files-in-pickup-regex
@@ -346,7 +346,7 @@ not be enclosed in { } or ( )."
      (3 font-lock-builtin-face prepend t))
 
     ;; Variable references even in targets/strings/comments.
-    (,var 1 font-lock-variable-name-face prepend)
+    (,var 2 font-lock-variable-name-face prepend)
 
     ;; Automatic variable references and single character variable references,
     ;; but not shell variables references.
@@ -358,11 +358,10 @@ not be enclosed in { } or ( )."
     ,@(if keywords
           ;; Fontify conditionals and includes.
           `((,(concat "^\\(?: [ \t]*\\)?"
-	      (replace-regexp-in-string
+	      (string-replace
 	       " " "[ \t]+"
 	       (if (eq (car keywords) t)
-		   (replace-regexp-in-string "-" "[_-]"
-                                             (regexp-opt (cdr keywords) t))
+		   (string-replace "-" "[_-]" (regexp-opt (cdr keywords) t))
 		 (regexp-opt keywords t)))
 	      "\\>[ \t]*\\([^: \t\n#]*\\)")
              (1 font-lock-keyword-face) (2 font-lock-variable-name-face))))

@@ -111,6 +111,8 @@
 
 ;;; Code:
 
+(require 'mail-parse)
+
 ;;; Variables:
 
 (defgroup lisp-mnt nil
@@ -357,18 +359,11 @@ Return argument is of the form (\"HOLDER\" \"YEAR1\" ... \"YEARN\")"
 	    summary)))))
 
 (defun lm-crack-address (x)
-  "Split up an email address X into full name and real email address.
-The value is a cons of the form (FULLNAME . ADDRESS)."
-  (cond ((string-match "\\(.+\\) [(<]\\(\\S-+@\\S-+\\)[>)]" x)
-	 (cons (match-string 1 x)
-	       (match-string 2 x)))
-	((string-match "\\(\\S-+@\\S-+\\) [(<]\\(.*\\)[>)]" x)
-	 (cons (match-string 2 x)
-	       (match-string 1 x)))
-	((string-match "\\S-+@\\S-+" x)
-	 (cons nil x))
-	(t
-	 (cons x nil))))
+  "Split up email address(es) X into full name and real email address.
+The value is a list of elements of the form (FULLNAME . ADDRESS)."
+  (mapcar (lambda (elem)
+            (cons (cdr elem) (car elem)))
+          (mail-header-parse-addresses-lax x)))
 
 (defun lm-authors (&optional file)
   "Return the author list of file FILE, or current buffer if FILE is nil.
@@ -376,16 +371,24 @@ Each element of the list is a cons; the car is the full name,
 the cdr is an email address."
   (lm-with-file file
     (let ((authorlist (lm-header-multiline "author")))
-      (mapcar #'lm-crack-address authorlist))))
+      (mapcan #'lm-crack-address authorlist))))
+
+(defun lm-maintainers (&optional file)
+  "Return the maintainer list of file FILE, or current buffer if FILE is nil.
+If the maintainers are unspecified, then return the authors.
+Each element of the list is a cons; the car is the full name,
+the cdr is an email address."
+  (lm-with-file file
+    (mapcan #'lm-crack-address
+            (or (lm-header-multiline "maintainer")
+                (lm-header-multiline "author")))))
 
 (defun lm-maintainer (&optional file)
   "Return the maintainer of file FILE, or current buffer if FILE is nil.
+If the maintainer is unspecified, then return the author.
 The return value has the form (NAME . ADDRESS)."
-  (lm-with-file file
-    (let ((maint (lm-header "maintainer")))
-      (if maint
-	  (lm-crack-address maint)
-	(car (lm-authors))))))
+  (declare (obsolete lm-maintainers "28.1"))
+  (car (lm-maintainers file)))
 
 (defun lm-creation-date (&optional file)
   "Return the created date given in file FILE, or current buffer if FILE is nil."
@@ -450,7 +453,7 @@ each line."
   "Return list of keywords given in file FILE."
   (let ((keywords (lm-keywords file)))
     (if keywords
-	(if (string-match-p "," keywords)
+	(if (string-search "," keywords)
 	    (split-string keywords ",[ \t\n]*" t "[ ]+")
 	  (split-string keywords "[ \t\n]+" t "[ ]+")))))
 
@@ -495,13 +498,14 @@ absent, return nil."
           "" (buffer-substring-no-properties
               start (lm-commentary-end))))))))
 
-(defun lm-homepage (&optional file)
-  "Return the homepage in file FILE, or current buffer if FILE is nil."
+(defun lm-website (&optional file)
+  "Return the website in file FILE, or current buffer if FILE is nil."
   (let ((page (lm-with-file file
-		(lm-header "\\(?:x-\\)?\\(?:homepage\\|url\\)"))))
-    (if (and page (string-match "^<.+>$" page))
-	(substring page 1 -1)
+                (lm-header (rx (? "x-") (or "url" "homepage"))))))
+    (if (and page (string-match (rx bol "<" (+ nonl) ">" eol) page))
+        (substring page 1 -1)
       page)))
+(defalias 'lm-homepage 'lm-website) ; for backwards-compatibility
 
 ;;; Verification and synopses
 
@@ -545,7 +549,7 @@ copyright notice is allowed."
 		"Can't find package name")
 	       ((not (lm-authors))
 		"`Author:' tag missing")
-	       ((not (lm-maintainer))
+	       ((not (lm-maintainers))
 		"`Maintainer:' tag missing")
 	       ((not (lm-summary))
 		"Can't find the one-line summary description")
@@ -613,7 +617,7 @@ Prompts for bug subject TOPIC.  Leaves you in a mail buffer."
   (interactive "sBug Subject: ")
   (require 'emacsbug)
   (let ((package (lm-get-package-name))
-	(addr (lm-maintainer))
+	(addr (car (lm-maintainers)))
 	(version (lm-version)))
     (compose-mail (if addr
 		      (concat (car addr) " <" (cdr addr) ">")

@@ -100,7 +100,7 @@ Return a pattern."
   "Regular expression to match a single-quoted literal.")
 
 (defconst rng-c-literal-2-re
-  (replace-regexp-in-string "'" "\"" rng-c-literal-1-re)
+  (string-replace "'" "\"" rng-c-literal-1-re)
   "Regular expression to match a double-quoted literal.")
 
 (defconst rng-c-ncname-re "\\w+")
@@ -179,7 +179,7 @@ Return a pattern."
     (setq rng-c-default-namespace rng-c-inherit-namespace)))
 
 (defun rng-c-expand-name (prefixed-name)
-  (let ((i (string-match ":" prefixed-name)))
+  (let ((i (string-search ":" prefixed-name)))
     (rng-make-name (rng-c-lookup-prefix (substring prefixed-name
 						   0
 						   i))
@@ -222,7 +222,7 @@ and URI is a symbol.")
     (cdr binding)))
 
 (defun rng-c-expand-datatype (prefixed-name)
-  (let ((i (string-match ":" prefixed-name)))
+  (let ((i (string-search ":" prefixed-name)))
     (rng-make-datatype
      (rng-c-lookup-datatype-prefix (substring prefixed-name 0 i))
      (substring prefixed-name (+ i 1)))))
@@ -369,7 +369,7 @@ OVERRIDE is either nil, require or t."
     (while (re-search-forward "\\\\x+{\\([[:xdigit:]]+\\)}"
 			      (point-max)
 			      t)
-      (let* ((ch (decode-char 'ucs (string-to-number (match-string 1) 16))))
+      (let* ((ch (string-to-number (match-string 1) 16)))
 	(if (and ch (> ch 0))
 	    (let ((begin (match-beginning 0))
 		  (end (match-end 0)))

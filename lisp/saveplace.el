@@ -55,7 +55,7 @@ This alist is saved between Emacs sessions.")
   :type 'file)
 
 (defcustom save-place-version-control nil
-  "Controls whether to make numbered backups of master save-place file.
+  "Controls whether to make numbered backups of master `save-place' file.
 It can have four values: t, nil, `never', and `nospecial'.  The first
 three have the same meaning that they do for the variable
 `version-control', and the final value `nospecial' means just use the
@@ -86,6 +86,13 @@ You may do this anytime by calling the complementary function,
 this happens automatically before saving `save-place-alist' to
 `save-place-file'."
   :type 'boolean)
+
+(defcustom save-place-abbreviate-file-names nil
+  "If non-nil, abbreviate file names before saving them.
+This can simplify sharing the `save-place-file' file across
+different hosts."
+  :type 'boolean
+  :version "28.1")
 
 (defcustom save-place-save-skipped t
   "If non-nil, remember files matching `save-place-skip-check-regexp'.
@@ -177,7 +184,10 @@ file:
   "Add current buffer filename and position to `save-place-alist'.
 Put filename and point in a cons box and then cons that onto the
 front of the `save-place-alist', if `save-place-mode' is non-nil.
-Otherwise, just delete that file from the alist."
+Otherwise, just delete that file from the alist.
+
+If `save-place-abbreviate-file-names' is non-nil, abbreviate the
+file names."
   ;; First check to make sure alist has been loaded in from the master
   ;; file.  If not, do so, then feel free to modify the alist.  It
   ;; will be saved again when Emacs is killed.
@@ -195,6 +205,8 @@ Otherwise, just delete that file from the alist."
                (or (not save-place-ignore-files-regexp)
                    (not (string-match save-place-ignore-files-regexp
                                       item))))
+      (when save-place-abbreviate-file-names
+        (setq item (abbreviate-file-name item)))
       (let ((cell (assoc item save-place-alist))
             (position (cond ((eq major-mode 'hexl-mode)
 			     (with-no-warnings
@@ -316,11 +328,18 @@ may have changed) back to `save-place-alist'."
       (with-current-buffer (car buf-list)
 	;; save-place checks buffer-file-name too, but we can avoid
 	;; overhead of function call by checking here too.
-	(and (or buffer-file-name (and (derived-mode-p 'dired-mode)
-                                       (boundp 'dired-subdir-alist)
-				       dired-subdir-alist
-				       (dired-current-directory)))
-	     (save-place-to-alist))
+	(when (and (or buffer-file-name
+                       (and (derived-mode-p 'dired-mode)
+                            (boundp 'dired-subdir-alist)
+		            dired-subdir-alist
+		            (dired-current-directory)))
+                   ;; Don't save place in literally-visited file
+                   ;; because this will commonly differ from the place
+                   ;; when visiting literally (and
+                   ;; `find-file-literally' always places point at the
+                   ;; start of the buffer).
+                   (not find-file-literally))
+	  (save-place-to-alist))
 	(setq buf-list (cdr buf-list))))))
 
 (defun save-place-find-file-hook ()

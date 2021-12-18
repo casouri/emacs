@@ -609,13 +609,72 @@ ns_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
     }
 }
 
+void
+ns_change_tab_bar_height (struct frame *f, int height)
+{
+  int unit = FRAME_LINE_HEIGHT (f);
+  int old_height = FRAME_TAB_BAR_HEIGHT (f);
+  int lines = (height + unit - 1) / unit;
+  Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
+  /* Make sure we redisplay all windows in this frame.  */
+  fset_redisplay (f);
+
+  /* Recalculate tab bar and frame text sizes.  */
+  FRAME_TAB_BAR_HEIGHT (f) = height;
+  FRAME_TAB_BAR_LINES (f) = lines;
+  store_frame_param (f, Qtab_bar_lines, make_fixnum (lines));
+
+  if (FRAME_NS_WINDOW (f) && FRAME_TAB_BAR_HEIGHT (f) == 0)
+    {
+      clear_frame (f);
+      clear_current_matrices (f);
+    }
+
+  if ((height < old_height) && WINDOWP (f->tab_bar_window))
+    clear_glyph_matrix (XWINDOW (f->tab_bar_window)->current_matrix);
+
+  if (!f->tab_bar_resized)
+    {
+      /* As long as tab_bar_resized is false, effectively try to change
+	 F's native height.  */
+      if (NILP (fullscreen) || EQ (fullscreen, Qfullwidth))
+	adjust_frame_size (f, FRAME_TEXT_WIDTH (f), FRAME_TEXT_HEIGHT (f),
+			   1, false, Qtab_bar_lines);
+      else
+	adjust_frame_size (f, -1, -1, 4, false, Qtab_bar_lines);
+
+      f->tab_bar_resized = f->tab_bar_redisplayed;
+    }
+  else
+    /* Any other change may leave the native size of F alone.  */
+    adjust_frame_size (f, -1, -1, 3, false, Qtab_bar_lines);
+
+  /* adjust_frame_size might not have done anything, garbage frame
+     here.  */
+  adjust_frame_glyphs (f);
+  SET_FRAME_GARBAGED (f);
+}
 
 /* tabbar support */
 static void
 ns_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
-  /* Currently unimplemented.  */
-  NSTRACE ("ns_set_tab_bar_lines");
+  int olines = FRAME_TAB_BAR_LINES (f);
+  int nlines;
+
+  /* Treat tab bars like menu bars.  */
+  if (FRAME_MINIBUF_ONLY_P (f))
+    return;
+
+  /* Use VALUE only if an int >= 0.  */
+  if (RANGED_FIXNUMP (0, value, INT_MAX))
+    nlines = XFIXNAT (value);
+  else
+    nlines = 0;
+
+  if (nlines != olines && (olines == 0 || nlines == 0))
+    ns_change_tab_bar_height (f, nlines * FRAME_LINE_HEIGHT (f));
 }
 
 
@@ -947,11 +1006,7 @@ frame_parm_handler ns_frame_parm_handlers[] =
   0, /* x_set_sticky */
   0, /* x_set_tool_bar_position */
   0, /* x_set_inhibit_double_buffering */
-#ifdef NS_IMPL_COCOA
   ns_set_undecorated,
-#else
-  0, /* ns_set_undecorated */
-#endif
   ns_set_parent_frame,
   0, /* x_set_skip_taskbar */
   ns_set_no_focus_on_map,
@@ -1181,6 +1236,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          "fontBackend", "FontBackend", RES_TYPE_STRING);
 
   {
+#ifdef NS_IMPL_COCOA
     /* use for default font name */
     id font = [NSFont userFixedPitchFontOfSize: -1.0]; /* default */
     gui_default_parameter (f, parms, Qfontsize,
@@ -1195,6 +1251,11 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                            build_string (fontname),
                            "font", "Font", RES_TYPE_STRING);
     xfree (fontname);
+#else
+    gui_default_parameter (f, parms, Qfont,
+                           build_string ("fixed"),
+                           "font", "Font", RES_TYPE_STRING);
+#endif
   }
   unblock_input ();
 
@@ -1304,6 +1365,10 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          NILP (Vmenu_bar_mode)
                          ? make_fixnum (0) : make_fixnum (1),
                          NULL, NULL, RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qtab_bar_lines,
+                         NILP (Vtab_bar_mode)
+                         ? make_fixnum (0) : make_fixnum (1),
+			 NULL, NULL, RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qtool_bar_lines,
                          NILP (Vtool_bar_mode)
                          ? make_fixnum (0) : make_fixnum (1),
@@ -1346,6 +1411,11 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   f->output_data.ns->current_pointer = f->output_data.ns->text_cursor;
 
   f->output_data.ns->in_animation = NO;
+
+#ifdef NS_IMPL_COCOA
+  /* If the app has previously been disabled, start it up again.  */
+  [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+#endif
 
   [[EmacsView alloc] initFrameFromEmacs: f];
 
@@ -1965,12 +2035,14 @@ is layered in front of the windows of other applications.  */)
       [NSApp unhide: NSApp];
       [NSApp activateIgnoringOtherApps: YES];
     }
+#if GNUSTEP_GUI_MAJOR_VERSION > 0 || GNUSTEP_GUI_MINOR_VERSION >= 27
   else if (EQ (on, intern ("activate-front")))
     {
       [NSApp unhide: NSApp];
       [[NSRunningApplication currentApplication]
         activateWithOptions: NSApplicationActivateIgnoringOtherApps];
     }
+#endif
   else if (NILP (on))
     [NSApp unhide: NSApp];
   else
@@ -2289,6 +2361,47 @@ ns_get_string_resource (void *_rdb, const char *name, const char *class)
 
    ========================================================================== */
 
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
+/* Moving files to the system recycle bin.
+   Used by `move-file-to-trash' instead of the default moving to ~/.Trash  */
+DEFUN ("system-move-file-to-trash", Fsystem_move_file_to_trash,
+       Ssystem_move_file_to_trash, 1, 1, 0,
+       doc: /* Move file or directory named FILENAME to the recycle bin.  */)
+  (Lisp_Object filename)
+{
+  Lisp_Object handler;
+  Lisp_Object operation;
+
+  operation = Qdelete_file;
+  if (!NILP (Ffile_directory_p (filename))
+      && NILP (Ffile_symlink_p (filename)))
+    {
+      operation = intern ("delete-directory");
+      filename = Fdirectory_file_name (filename);
+    }
+
+  /* Must have fully qualified file names for moving files to Trash. */
+  filename = Fexpand_file_name (filename, Qnil);
+
+  handler = Ffind_file_name_handler (filename, operation);
+  if (!NILP (handler))
+    return call2 (handler, operation, filename);
+  else
+    {
+      NSFileManager *fm = [NSFileManager defaultManager];
+      BOOL result = NO;
+      NSURL *fileURL = [NSURL fileURLWithPath:[NSString stringWithLispString:filename]
+                                  isDirectory:!NILP (Ffile_directory_p (filename))];
+      if ([fm respondsToSelector:@selector(trashItemAtURL:resultingItemURL:error:)])
+        result = [fm trashItemAtURL:fileURL resultingItemURL:nil error:nil];
+
+      if (!result)
+	report_file_error ("Removing old name", list1 (filename));
+    }
+  return Qnil;
+}
+#endif
 
 DEFUN ("xw-color-defined-p", Fxw_color_defined_p, Sxw_color_defined_p, 1, 2, 0,
        doc: /* SKIP: real doc in xfns.c.  */)
@@ -3170,6 +3283,10 @@ Default is t.  */);
 
   defsubr (&Sx_show_tip);
   defsubr (&Sx_hide_tip);
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
+  defsubr (&Ssystem_move_file_to_trash);
+#endif
 
   as_status = 0;
   as_script = Qnil;

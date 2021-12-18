@@ -152,6 +152,9 @@ truncation; a @samp{\} on the rightmost column indicates a line that
 wraps.  (The display table can specify alternate characters to use
 for this; @pxref{Display Tables}).
 
+   Since wrapping and truncation of text contradict each other, Emacs
+turns off line truncation when wrapping is requested, and vice versa.
+
 @defopt truncate-lines
 If this buffer-local variable is non-@code{nil}, lines that extend
 beyond the right edge of the window are truncated; otherwise, they are
@@ -558,6 +561,26 @@ You can rewrite the previous example with this macro as follows:
 @end example
 @end defmac
 
+@defmac with-delayed-message (timeout message) body@dots{}
+Sometimes it's unclear whether an operation will take a long time to
+execute or not, or it can be inconvenient to implement a progress
+reporter.  This macro can be used in those situations.
+
+@lisp
+(with-delayed-message (2 (format "Gathering data for %s" entry))
+  (setq data (gather-data entry)))
+@end lisp
+
+In this example, if the body takes more than two seconds to execute,
+the message will be displayed.  If it takes a shorter time than that,
+the message won't be displayed.  In either case, the body is evaluated
+as normally, and the return value of the final element in the body is
+the return value of the macro.
+
+The @var{message} element is evaluated before @var{body}, and is
+always evaluated, whether the message is displayed or not.
+@end defmac
+
 @node Logging Messages
 @subsection Logging Messages in @file{*Messages*}
 @cindex logging echo-area messages
@@ -646,9 +669,9 @@ If the value is zero, then command input is not echoed.
 
 @defvar message-truncate-lines
 Normally, displaying a long message resizes the echo area to display
-the entire message.  But if the variable @code{message-truncate-lines}
-is non-@code{nil}, the echo area does not resize, and the message is
-truncated to fit it.
+the entire message, wrapping long line as needed.  But if the variable
+@code{message-truncate-lines} is non-@code{nil}, long lines of
+echo-area message are instead truncated to fit the mini-window width.
 @end defvar
 
   The variable @code{max-mini-window-height}, which specifies the
@@ -1331,6 +1354,11 @@ are not resized.  By default, this mode uses @code{fit-window-to-buffer}
 (@pxref{Resizing Windows}) for resizing.  You can specify a different
 function by customizing the options @code{temp-buffer-max-height} and
 @code{temp-buffer-max-width} below.
+
+The effect of this option can be overridden by providing a suitable
+@code{window-height}, @code{window-width} or @code{window-size} action
+alist entry for @code{display-buffer} (@pxref{Buffer Display Action
+Alists}).
 @end defopt
 
 @defopt temp-buffer-max-height
@@ -1861,9 +1889,12 @@ from the buffer.
 @item keymap
 @cindex keymap of character (and overlays)
 @kindex keymap @r{(overlay property)}
-If this property is non-@code{nil}, it specifies a keymap for a portion of the
-text.  This keymap is used when the character after point is within the
-overlay, and takes precedence over most other keymaps.  @xref{Active Keymaps}.
+If this property is non-@code{nil}, it specifies a keymap for a
+portion of the text.  This keymap takes precedence over most other
+keymaps (@pxref{Active Keymaps}), and it is used when point is within
+the overlay, where the front-
+and rear-advance properties define whether the boundaries are
+considered as being @emph{within} or not.
 
 @item local-map
 @kindex local-map @r{(overlay property)}
@@ -1914,7 +1945,8 @@ This function returns a list of the overlays that overlap the region
 contains one or more characters in the region; empty overlays
 (@pxref{Managing Overlays, empty overlay}) overlap if they are at
 @var{beg}, strictly between @var{beg} and @var{end}, or at @var{end}
-when @var{end} denotes the position at the end of the buffer.
+when @var{end} denotes the position at the end of the accessible part
+of the buffer.
 @end defun
 
 @defun next-overlay-change pos
@@ -1976,7 +2008,8 @@ The return value is an approximation: it only considers the values
 returned by @code{char-width} for the constituent characters, always
 takes a tab character as taking @code{tab-width} columns, ignores
 display properties and fonts, etc.  For these reasons, we recommend
-using @code{window-text-pixel-size}, described below, instead.
+using @code{window-text-pixel-size} or @code{string-pixel-width},
+described below, instead.
 @end defun
 
 @defun truncate-string-to-width string width &optional start-column padding ellipsis ellipsis-text-property
@@ -1990,11 +2023,11 @@ If a multi-column character in @var{string} exceeds the goal
 result can sometimes fall short of @var{width}, but cannot go beyond
 it.
 
-The optional argument @var{start-column} specifies the starting column.
-If this is non-@code{nil}, then the first @var{start-column} columns of
-the string are omitted from the result.  If one multi-column character in
-@var{string} extends across the column @var{start-column}, that
-character is omitted.
+The optional argument @var{start-column} specifies the starting
+column; it defaults to zero.  If this is non-@code{nil}, then the
+first @var{start-column} columns of the string are omitted from the
+result.  If one multi-column character in @var{string} extends across
+the column @var{start-column}, that character is omitted.
 
 The optional argument @var{padding}, if non-@code{nil}, is a padding
 character added at the beginning and end of the result string, to
@@ -2020,11 +2053,21 @@ property (@pxref{Display Property}) showing the ellipsis, instead of
 actually truncating the string.
 
 @example
+@group
 (truncate-string-to-width "\tab\t" 12 4)
      @result{} "ab"
 (truncate-string-to-width "\tab\t" 12 4 ?\s)
      @result{} "    ab  "
+@end group
 @end example
+
+This function uses @code{string-width} and @code{char-width} to find
+the suitable truncation point when @var{string} is too wide, so it
+suffers from the same basic issues as @code{string-width} does.  In
+particular, when character composition happens within @var{string},
+the display width of a string could be smaller than the sum of widths
+of the constituent characters, and this function might return
+inaccurate results.
 @end defun
 
 @defun truncate-string-ellipsis
@@ -2043,7 +2086,7 @@ displayed in a given window.  This function is used by
 (@pxref{Resizing Windows}) to make a window exactly as large as the text
 it contains.
 
-@defun window-text-pixel-size &optional window from to x-limit y-limit mode-and-header-line
+@defun window-text-pixel-size &optional window from to x-limit y-limit mode-lines
 This function returns the size of the text of @var{window}'s buffer in
 pixels.  @var{window} must be a live window and defaults to the
 selected one.  The return value is a cons of the maximum pixel-width
@@ -2085,12 +2128,12 @@ calculating the pixel-height of a large buffer can take some time, it
 makes sense to specify this argument; in particular, if the caller
 does not know the size of the buffer.
 
-The optional argument @var{mode-and-header-line} @code{nil} or omitted
-means to not include the height of the mode- or header-line of
-@var{window} in the return value.  If it is either the symbol
-@code{mode-line} or @code{header-line}, include only the height of that
+The optional argument @var{mode-lines} @code{nil} or omitted means to
+not include the height of the mode-, tab- or header-line of @var{window}
+in the return value.  If it is either the symbol @code{mode-line},
+@code{tab-line} or @code{header-line}, include only the height of that
 line, if present, in the return value.  If it is @code{t}, include the
-height of both, if present, in the return value.
+height of all of these lines, if present, in the return value.
 @end defun
 
 @code{window-text-pixel-size} treats the text displayed in a window as a
@@ -2158,10 +2201,57 @@ though when this function is run from an idle timer with a delay of zero
 seconds.
 @end defun
 
+@defun buffer-text-pixel-size &optional buffer-or-name window from to x-limit y-limit
+This is much like @code{window-text-pixel-size}, but can be used when
+the buffer isn't shown in a window.  (@code{window-text-pixel-size} is
+faster when it is, so this function shouldn't be used in that case.)
+
+@var{buffer-or-name} must specify a live buffer or the name of a live
+buffer and defaults to the current buffer.  @var{window} must be a
+live window and defaults to the selected one; the function will
+compute the text dimensions as if @var{buffer} is displayed in
+@var{window}.  The return value is a cons of the maximum pixel-width
+of any text line and the pixel-height of all the text lines of the
+buffer specified by @var{buffer-or-name}.
+
+The optional arguments @var{x-limit} and @var{y-limit} have the same
+meaning as with @code{window-text-pixel-size}.
+@end defun
+
+@defun string-pixel-width string
+This is a convenience function that uses @code{window-text-pixel-size}
+to compute the width of @var{string} (in pixels).
+@end defun
+
 @defun line-pixel-height
 This function returns the height in pixels of the line at point in the
 selected window.  The value includes the line spacing of the line
 (@pxref{Line Height}).
+@end defun
+
+@cindex grapheme cluster
+@defun string-glyph-split string
+When character compositions are in effect, sequence of characters can
+be composed for display to form @dfn{grapheme clusters}, for example
+to display accented characters, or ligatures, or Emoji, or when
+complex text shaping requires that for some scripts.  When that
+happens, characters no longer map in a simple way to display columns,
+and display layout decisions with such strings, such as truncating too
+wide strings, can be a complex job.  This function helps in performing
+suvh jobs: it splits up its argument @var{string} into a list of
+substrings, where each substring produces a single grapheme cluster
+that should be displayed as a unit.  Lisp programs can then use this
+list to construct visually-valid substrings of @var{string} which will
+look correctly on display, or compute the width of any substring of
+@var{string} by adding the width of its constituents in the returned
+list, etc.
+
+For instance, if you want to display a string without the first glyph,
+you can say:
+
+@example
+(apply #'insert (cdr (string-glyph-split string))))
+@end example
 @end defun
 
 When a buffer is displayed with line numbers (@pxref{Display Custom,,,
@@ -2355,8 +2445,10 @@ value @code{unspecified}.  This special value means that the face
 doesn't specify that attribute directly.  An @code{unspecified}
 attribute tells Emacs to refer instead to a parent face (see the
 description @code{:inherit} attribute below); or, failing that, to an
-underlying face (@pxref{Displaying Faces}).  The @code{default} face
-must specify all attributes.
+underlying face (@pxref{Displaying Faces}).  (However,
+@code{unspecified} is not a valid value in @code{defface}.)
+
+  The @code{default} face must specify all attributes.
 
   Some of these attributes are meaningful only on certain kinds of
 displays.  If your display cannot handle a certain attribute, the
@@ -2692,8 +2784,9 @@ apply to.  Here are the possible values of @var{characteristic}:
 @item type
 The kind of window system the terminal uses---either @code{graphic}
 (any graphics-capable display), @code{x}, @code{pc} (for the MS-DOS
-console), @code{w32} (for MS Windows 9X/NT/2K/XP), or @code{tty} (a
-non-graphics-capable display).  @xref{Window Systems, window-system}.
+console), @code{w32} (for MS Windows 9X/NT/2K/XP), @code{haiku} (for
+Haiku), or @code{tty} (a non-graphics-capable display).
+@xref{Window Systems, window-system}.
 
 @item class
 What kinds of colors the terminal supports---either @code{color},
@@ -2743,6 +2836,11 @@ terminal must match one of the @var{value}s specified for it in
   :group 'basic-faces)
 @end example
 
+@kindex face-defface-spec @r{(face symbol property)}
+@kindex saved-face @r{(face symbol property)}
+@kindex customized-face @r{(face symbol property)}
+@kindex theme-face @r{(face symbol property)}
+@kindex face-documentation @r{(face symbol property)}
   Internally, Emacs stores each face's default spec in its
 @code{face-defface-spec} symbol property (@pxref{Symbol Properties}).
 The @code{saved-face} property stores any face spec saved by the user
@@ -2799,9 +2897,12 @@ This function returns the value of the @var{attribute} attribute for
 
 If @var{frame} is omitted or @code{nil}, that means the selected frame
 (@pxref{Input Focus}).  If @var{frame} is @code{t}, this function
-returns the value of the specified attribute for newly-created frames
-(this is normally @code{unspecified}, unless you have specified some
-value using @code{set-face-attribute}; see below).
+returns the value of the specified attribute for newly-created frames,
+i.e.@: the value of the attribute before applying the face spec in the
+face's @code{defface} definition (@pxref{Defining Faces}) or the spec
+set by @code{face-spec-set}.  This default value of @var{attribute} is
+normally @code{unspecified}, unless you have specified some other
+value using @code{set-face-attribute}; see below.
 
 If @var{inherit} is @code{nil}, only attributes directly defined by
 @var{face} are considered, so the return value may be
@@ -2851,7 +2952,12 @@ elements of the result are name-value pairs of the form
 @w{@code{(@var{attr-name} . @var{attr-value})}}.  Optional argument
 @var{frame} specifies the frame whose definition of @var{face} to
 return; if omitted or @code{nil}, the returned value describes the
-default attributes of @var{face} for newly created frames.
+default attributes of @var{face} for newly created frames, i.e.@: the
+values these attributes have before applying the face spec in the
+face's @code{defface} definition or the spec set by
+@code{face-spec-set}.  These default values of the attributes are
+normally @code{unspecified}, unless you have specified some other
+value using @code{set-face-attribute}; see below.
 @end defun
 
 @defun merge-face-attribute attribute value1 value2
@@ -2869,7 +2975,7 @@ for all frames.  This function is mostly intended for internal usage.
 
 @defun set-face-attribute face frame &rest arguments
 This function sets one or more attributes of @var{face} for
-@var{frame}.  The attributes specifies in this way override the face
+@var{frame}.  The attributes specified in this way override the face
 spec(s) belonging to @var{face}.
 
 The extra arguments @var{arguments} specify the attributes to set, and
@@ -2886,9 +2992,10 @@ sets the attribute @code{:weight} to @code{bold} and the attribute
 
 
 If @var{frame} is @code{t}, this function sets the default attributes
-for newly created frames.  If @var{frame} is @code{nil}, this function
-sets the attributes for all existing frames, as well as for newly
-created frames.
+for newly created frames; they will effectively override the attribute
+values specified by @code{defface}.  If @var{frame} is @code{nil},
+this function sets the attributes for all existing frames, as well as
+for newly created frames.
 @end defun
 
   The following commands and functions mostly provide compatibility
@@ -4767,15 +4874,57 @@ window on a minibuffer-less frame.
 
   The @code{display} text property (or overlay property) is used to
 insert images into text, and to control other aspects of how text
-displays.  The value of the @code{display} property should be a
-display specification, or a list or vector containing several display
-specifications.  Display specifications in the same @code{display}
+displays.  Display specifications in the same @code{display}
 property value generally apply in parallel to the text they cover.
 
   If several sources (overlays and/or a text property) specify values
 for the @code{display} property, only one of the values takes effect,
 following the rules of @code{get-char-property}.  @xref{Examining
 Properties}.
+
+  The value of the @code{display} property should be a display
+specification, or a list or vector containing several display
+specifications.
+
+@defun get-display-property position prop &optional object properties
+This convenience function can be used to get a specific display
+property, no matter whether the @code{display} property is a vector, a
+list or a simple property.  This is like @code{get-text-property}
+(@pxref{Examining Properties}), but works on the @code{display}
+property only.
+
+@var{position} is the position in the buffer or string to examine, and
+@var{prop} is the @code{display} property to return.  The optional
+@var{object} argument should be either a string or a buffer, and
+defaults to the current buffer.  If the optional @var{properties}
+argument is non-@code{nil}, it should be a @code{display} property,
+and in that case, @var{position} and @var{object} are ignored.  (This
+can be useful if you've already gotten the @code{display} property
+with @code{get-char-property}, for instance (@pxref{Examining
+Properties}).
+@end defun
+
+@defun add-display-text-property start end prop value &optional object
+Add @code{display} property @var{prop} of @var{value} to the text from
+@var{start} to @var{end}.
+
+If any text in the region has a non-@code{nil} @code{display}
+property, those properties are retained.  For instance:
+
+@lisp
+(add-display-text-property 4 8 'height 2.0)
+(add-display-text-property 2 12 'raise 0.5)
+@end lisp
+
+After doing this, the region from 2 to 4 will have the @code{raise}
+@code{display} property, the region from 4 to 8 will have both the
+@code{raise} and @code{height} @code{display} properties, and finally
+the region from 8 to 12 will only have the @code{raise} @code{display}
+property.
+
+If @var{object} is non-@code{nil}, it should be a string or a buffer.
+If @code{nil}, this defaults to the current buffer.
+@end defun
 
 @cindex display property, unsafe evaluation
 @cindex security, and display specifications
@@ -5052,6 +5201,24 @@ text that has the specification.  It displays all of these spaces
 be an integer or float.  Characters other than spaces are not affected
 at all; in particular, this has no effect on tab characters.
 
+@item (min-width (@var{width}))
+This display specification ensures the text that has it takes at least
+@var{width} space on display, by adding a stretch of white space to
+the end of the text if the text is shorter than @var{width}.  The text
+is partitioned using the identity of the parameter, which is why the
+parameter is a list with one element.  For instance:
+
+@lisp
+(insert (propertize "foo" '(display (min-width (6.0)))))
+@end lisp
+
+This will add padding after @samp{foo} bringing the total width up to
+the width of six normal characters.  Note that the affected characters
+are identified by the @code{(6.0)} list in the display property,
+compared with @code{eq}.  The element @var{width} can be either an
+integer or a float specifying the required minimum width of the text
+(@pxref{Pixel Specification}).
+
 @item (height @var{height})
 This display specification makes the text taller or shorter.
 Here are the possibilities for @var{height}:
@@ -5252,13 +5419,13 @@ to modify the set of known names for these dynamic libraries.
   Supported image formats (and the required support libraries) include
 PBM and XBM (which do not depend on support libraries and are always
 available), XPM (@code{libXpm}), GIF (@code{libgif} or
-@code{libungif}), JPEG (@code{libjpeg}), TIFF
-(@code{libtiff}), PNG (@code{libpng}), and SVG (@code{librsvg}).
+@code{libungif}), JPEG (@code{libjpeg}), TIFF (@code{libtiff}), PNG
+(@code{libpng}), SVG (@code{librsvg}), and WebP (@code{libwebp}).
 
   Each of these image formats is associated with an @dfn{image type
 symbol}.  The symbols for the above formats are, respectively,
-@code{pbm}, @code{xbm}, @code{xpm}, @code{gif},
-@code{jpeg}, @code{tiff}, @code{png}, and @code{svg}.
+@code{pbm}, @code{xbm}, @code{xpm}, @code{gif}, @code{jpeg},
+@code{tiff}, @code{png}, @code{svg}, and @code{webp}.
 
   Furthermore, if you build Emacs with ImageMagick
 (@code{libMagickWand}) support, Emacs can display any image format
@@ -5966,7 +6133,7 @@ To @var{svg} add an embedded (raster) image placed at
 @code{:base-uri} specifies a (possibly non-existing) file name of the
 svg image to be created, thus all the embedded files are searched
 relatively to the @code{:base-uri} filename's directory.  If
-@code{:base-uri} is ommited, then filename from where svg image is
+@code{:base-uri} is omitted, then filename from where svg image is
 loaded is used.  Using @code{:base-uri} improves the performance of
 embedding large images, comparing to @code{svg-embed}, because all the
 work is done directly by librsvg.
@@ -6262,6 +6429,9 @@ Image type @code{png}.
 @item TIFF
 Image type @code{tiff}.
 Supports the @code{:index} property.  @xref{Multi-Frame Images}.
+
+@item WebP
+Image type @code{webp}.
 @end table
 
 @node Defining Images
@@ -6413,7 +6583,7 @@ will compute a scaling factor based on the font pixel size.
 property yourself, but it is easier to use the functions in this
 section.
 
-@defun insert-image image &optional string area slice
+@defun insert-image image &optional string area slice inhibit-isearch
 This function inserts @var{image} in the current buffer at point.  The
 value @var{image} should be an image descriptor; it could be a value
 returned by @code{create-image}, or the value of a symbol defined with
@@ -6438,7 +6608,9 @@ image.
 
 Internally, this function inserts @var{string} in the buffer, and gives
 it a @code{display} property which specifies @var{image}.  @xref{Display
-Property}.
+Property}.  By default, doing interactive searches in the buffer will
+consider @var{string} when searching.  If @var{inhibit-isearch} is
+non-@code{nil}, this is inhibited.
 @end defun
 
 @cindex slice, image
@@ -6513,6 +6685,11 @@ first time an image is loaded.  Once an image is placed in the image
 cache, it can always be displayed, even if the value of
 @code{max-image-size} is subsequently changed (@pxref{Image Cache}).
 @end defvar
+
+@defun image-at-point-p
+This function returns @code{t} if point is on an image, and @code{nil}
+otherwise.
+@end defun
 
 Images inserted with the insertion functions above also get a local
 keymap installed in the text properties (or overlays) that span the
@@ -6685,7 +6862,10 @@ xwidget object, and then use that object as the display specifier
 in a @code{display} text or overlay property (@pxref{Display
 Property}).
 
-@defun make-xwidget type title width height arguments &optional buffer
+  Embedded widgets can send events notifying Lisp code about changes
+occurring within them.  (@pxref{Xwidget Events}).
+
+@defun make-xwidget type title width height arguments &optional buffer related
 This creates and returns an xwidget object.  If
 @var{buffer} is omitted or @code{nil}, it defaults to the current
 buffer.  If @var{buffer} names a buffer that doesn't exist, it will be
@@ -6698,7 +6878,17 @@ The WebKit component.
 @end table
 
 The @var{width} and @var{height} arguments specify the widget size in
-pixels, and @var{title}, a string, specifies its title.
+pixels, and @var{title}, a string, specifies its title.  @var{related}
+is used internally by the WebKit widget, and specifies another WebKit
+widget that the newly created widget should share settings and
+subprocesses with.
+
+The xwidget that is returned will be killed alongside its buffer
+(@pxref{Killing Buffers}).  You can also kill it using
+@code{kill-xwidget}.  Once it is killed, the xwidget may continue to
+exist as a Lisp object and act as a @code{display} property until all
+references to it are gone, but most actions that can be performed on
+live xwidgets will no longer be available.
 @end defun
 
 @defun xwidgetp object
@@ -6706,6 +6896,17 @@ This function returns @code{t} if @var{object} is an xwidget,
 @code{nil} otherwise.
 @end defun
 
+@defun xwidget-live-p object
+This function returns @code{t} if @var{object} is an xwidget that
+hasn't been killed, and @code{nil} otherwise.
+@end defun
+
+@defun kill-xwidget xwidget
+This function kills @var{xwidget}, by removing it from its buffer and
+releasing window system resources it holds.
+@end defun
+
+@cindex xwidget property list
 @defun xwidget-plist xwidget
 This function returns the property list of @var{xwidget}.
 @end defun
@@ -6716,7 +6917,12 @@ property list given by @var{plist}.
 @end defun
 
 @defun xwidget-buffer xwidget
-This function returns the buffer of @var{xwidget}.
+This function returns the buffer of @var{xwidget}.  If @var{xwidget}
+has been killed, it returns @code{nil}.
+@end defun
+
+@defun set-xwidget-buffer xwidget buffer
+This function sets the buffer of @var{xwidget} to @var{buffer}.
 @end defun
 
 @defun get-buffer-xwidgets buffer
@@ -6777,6 +6983,130 @@ Emacs will query the user, otherwise it will not.
 @defun xwidget-query-on-exit-flag xwidget
 This function returns the current setting of @var{xwidget}s
 query-on-exit flag, either @code{t} or @code{nil}.
+@end defun
+
+@defun xwidget-perform-lispy-event xwidget event frame
+Send an input event @var{event} to @var{xwidget}.  The precise action
+performed is platform-specific.  @xref{Input Events}.
+
+You can optionally pass the frame on which the event was generated via
+@var{frame}.  On X11, modifier keys in key events will not be
+considered if @var{frame} is @code{nil}, and the selected frame is not
+an X-Windows frame.
+
+On GTK, only keyboard and function key events are supported.  Mouse,
+motion, and click events are dispatched to the xwidget without going
+through Lisp code, and as such shouldn't require this function to be
+called.
+@end defun
+
+@defun xwidget-webkit-search query xwidget &optional case-insensitive backwards wrap-around
+Start an incremental search on the WebKit widget @var{xwidget} with
+the string @var{query} as the query.  @var{case-insensitive} denotes
+whether or not the search is case-insensitive, @var{backwards}
+determines if the search is performed backwards towards the start of
+the document, and @var{wrap-around} determines whether or not the
+search terminates at the end of the document.
+
+If the function is called while a search query is already present,
+then the query specified here will replace the existing query.
+
+To stop a search query, use @code{xwidget-webkit-finish-search}.
+@end defun
+
+@defun xwidget-webkit-next-result xwidget
+Display the next search result in @var{xwidget}.  This function will
+signal an error if a search query has not been already started in
+@var{xwidget} through @code{xwidget-webkit-search}.
+
+If @code{wrap-around} was non-nil when @code{xwidget-webkit-search}
+was called, then the search will restart from the beginning of the
+document when its end is reached.
+@end defun
+
+@defun xwidget-webkit-previous-result xwidget
+Display the previous search result in @var{xwidget}.  This function
+signals an error if a search query has not been already started in
+@var{xwidget} through @code{xwidget-webkit-search}.
+
+If @code{wrap-around} was non-nil when @code{xwidget-webkit-search}
+was called, then the search will restart from the end of the
+document when its beginning is reached.
+@end defun
+
+@defun xwidget-webkit-finish-search xwidget
+Finish a search operation started with @code{xwidget-webkit-search} in
+@var{xwidget}.  If there is no query currently ongoing, this function
+signals an error.
+@end defun
+
+@defun xwidget-webkit-load-html xwidget text &optional base-uri
+Load @var{text}, a string, into @var{xwidget}, which should be a
+WebKit xwidget.  Any HTML markup in @var{text} will be processed
+by @var{xwidget} while rendering the text.
+
+Optional argument @var{base-uri}, which should be a string, specifies
+the absolute location of the web resources referenced by @var{text},
+to be used for resolving relative links in @var{text}.
+@end defun
+
+@defun xwidget-webkit-goto-history xwidget rel-pos
+Make @var{xwidget}, a WebKit widget, load the @var{rel-pos}th element
+in its navigation history.
+
+If @var{rel-pos} is zero, the current page will be reloaded instead.
+@end defun
+
+@defun xwidget-webkit-back-forward-list xwidget &optional limit
+Return the navigation history of @var{xwidget}, up to @var{limit}
+items in each direction.  If not specified, @var{limit} defaults to
+50.
+
+The returned value is a list of the form @w{@code{(@var{back}
+@var{here} @var{forward})}}, where @var{here} is the current
+navigation item, while @var{back} is a list of items containing the
+items recorded by WebKit before the current navigation item, and
+@var{forward} is a list of items recorded after the current navigation
+item.  @var{back}, @var{here} and @var{forward} can all be @code{nil}.
+
+When @var{here} is @code{nil}, it means that no items have been
+recorded yet; if @var{back} or @var{forward} are @code{nil}, it means
+that there is no history recorded before or after the current item
+respectively.
+
+Navigation items are themselves lists of the form @w{@code{(@var{idx}
+@var{title} @var{uri})}}.  In these lists, @var{idx} is an index that
+can be passed to @code{xwidget-webkit-goto-history}, @var{title} is
+the human-readable title of the item, and @var{uri} is the URI of the
+item.  The user should normally have no reason to load @var{uri}
+manually to reach a specific history item.  Instead, @var{idx} should
+be passed as an index to @code{xwidget-webkit-goto-history}.
+@end defun
+
+@defun xwidget-webkit-estimated-load-progress xwidget
+Return an estimate of how much data is remaining to be transferred
+before the page displayed by the WebKit widget @var{xwidget} is fully
+loaded.
+
+The value returned is a float ranging between 0.0 and 1.0.
+@end defun
+
+@defun xwidget-webkit-set-cookie-storage-file xwidget file
+Make the WebKit widget @var{xwidget} store cookies in @var{file}.
+
+@var{file} must be an absolute file name.  The new setting will also
+affect any xwidget that was created with @var{xwidget} as the
+@code{related} argument to @code{make-xwidget}, and widgets related to
+those as well.
+
+If this function is not called at least once on @var{xwidget} or a
+related widget, @var{xwidget} will not store cookies on disk at all.
+@end defun
+
+@defun xwidget-webkit-stop-loading xwidget
+Terminate any data transfer still in progress in the WebKit widget
+@var{xwidget} as part of a page-loading operation.  If a page is not
+being loaded, this function does nothing.
 @end defun
 
 @node Buttons
@@ -6972,7 +7302,7 @@ This inserts a button with the label @var{label} at point, using text
 properties.
 @end defun
 
-@defun button-buttonize string callback &optional data
+@defun buttonize string callback &optional data
 Sometimes it's more convenient to make a string into a button without
 inserting it into a buffer immediately, for instance when creating
 data structures that may then, later, be inserted into a buffer.  This
@@ -7447,16 +7777,14 @@ The string is formatted #RRGGBB (hash followed by six hex digits)."
   (kill-buffer nil))
 
 (setq colorcomp-mode-map
-      (let ((m (make-sparse-keymap)))
-        (suppress-keymap m)
-        (define-key m "i" 'colorcomp-R-less)
-        (define-key m "o" 'colorcomp-R-more)
-        (define-key m "k" 'colorcomp-G-less)
-        (define-key m "l" 'colorcomp-G-more)
-        (define-key m "," 'colorcomp-B-less)
-        (define-key m "." 'colorcomp-B-more)
-        (define-key m " " 'colorcomp-copy-as-kill-and-exit)
-        m))
+      (define-keymap :suppress t
+        "i" 'colorcomp-R-less
+        "o" 'colorcomp-R-more
+        "k" 'colorcomp-G-less
+        "l" 'colorcomp-G-more
+        "," 'colorcomp-B-less
+        "." 'colorcomp-B-more
+        "SPC" 'colorcomp-copy-as-kill-and-exit))
 @end smallexample
 
 Note that we never modify the data in each node, which is fixed when the
@@ -7865,7 +8193,14 @@ there is no available font (on a graphical display), and characters
 which cannot be encoded by the terminal's coding system (on a text
 terminal).
 
+@vindex glyphless-display-mode
+The @code{glyphless-display-mode} minor mode can be used to toggle
+displaying glyphless characters in a convenient manner in the current
+buffer.  If this mode is enabled, all the glyphless characters are
+displayed as boxes that display acronyms of their character names.
+
 @defvar glyphless-char-display
+For more fine-grained (and global) control, this variable can be used.
 The value of this variable is a char-table which defines glyphless
 characters and how they are displayed.  Each entry must be one of the
 following display methods:
@@ -7945,6 +8280,21 @@ Characters of Unicode General Category [Cf], such as U+200E
 @sc{left-to-right mark}, but excluding characters that have graphic
 images, such as U+00AD @sc{soft hyphen}.
 
+@item bidi-control
+This is a subset of @code{format-control}, but only includes
+characters that are related to bidirectional formatting control, like
+U+2069 @sc{pop directional isolate} and U+202A @sc{left-to-right
+embedding}.  @xref{Bidirectional Display}.
+
+Characters of Unicode General Category [Cf], such as U+200E
+@sc{left-to-right mark}, but excluding characters that have graphic
+images, such as U+00AD @sc{soft hyphen}.
+
+@item variation-selectors
+Unicode VS-1 through VS-16 (U+FE00 through U+FE0F), which are used to
+select between different glyphs for the same codepoints (typically
+emojis).
+
 @item no-font
 Characters for which there is no suitable font, or which cannot be
 encoded by the terminal's coding system.
@@ -8017,6 +8367,8 @@ Emacs is displaying the frame using the Nextstep interface (used on
 GNUstep and macOS).
 @item pc
 Emacs is displaying the frame using MS-DOS direct screen writes.
+@item haiku
+Emacs is displaying the frame using the Application Kit on Haiku.
 @item nil
 Emacs is displaying the frame on a character-based terminal.
 @end table
@@ -8063,6 +8415,7 @@ area.  On text-mode (a.k.a.@: ``TTY'') frames, tooltips are always
 displayed in the echo area.
 @end defun
 
+@cindex system tooltips
 @vindex x-gtk-use-system-tooltips
 When Emacs is built with GTK+ support, it by default displays tooltips
 using GTK+ functions, and the appearance of the tooltips is then

@@ -53,6 +53,7 @@
   (message eieio-version))
 
 (require 'eieio-core)
+(eval-when-compile (require 'subr-x))
 
 
 ;;; Defining a new class
@@ -109,7 +110,7 @@ Options in CLOS not supported in EIEIO:
 
 Due to the way class options are set up, you can add any tags you wish,
 and reference them using the function `class-option'."
-  (declare (doc-string 4))
+  (declare (doc-string 4) (indent defun))
   (cl-check-type superclasses list)
 
   (cond ((and (stringp (car options-and-doc))
@@ -204,7 +205,7 @@ and reference them using the function `class-option'."
                    (eieio-oset this ',sname value))
                 accessors)
           (push `(cl-defmethod ,acces ((this ,name))
-                   ,(format
+                   ,(internal--format-docstring-line
                      "Retrieve the slot `%S' from an object of class `%S'."
                      sname name)
                    ;; FIXME: Why is this different from the :reader case?
@@ -240,7 +241,8 @@ This method is obsolete."
 	))
 
     `(progn
-       ,@(mapcar (lambda (w) (macroexp-warn-and-return w `(progn ',w) 'compile-only))
+       ,@(mapcar (lambda (w)
+                   (macroexp-warn-and-return w `(progn ',w) nil 'compile-only))
                  warnings)
        ;; This test must be created right away so we can have self-
        ;; referencing classes.  ei, a class whose slot can contain only
@@ -283,7 +285,8 @@ This method is obsolete."
 
           ;; Non-abstract classes need a constructor.
           `(defun ,name (&rest slots)
-             ,(format "Create a new object of class type `%S'." name)
+             ,(internal--format-docstring-line
+               "Create a new object of class type `%S'." name)
              (declare (compiler-macro
                        (lambda (whole)
                          (if (not (stringp (car slots)))
@@ -356,9 +359,7 @@ variable name of the same name as the slot."
 
 (defun eieio-pcase-slot-index-from-index-table (index-table slot)
   "Find the index to pass to `aref' to access SLOT."
-  (let ((index (gethash slot index-table)))
-    (if index (+ (eval-when-compile eieio--object-num-slots)
-                 index))))
+  (gethash slot index-table))
 
 (pcase-defmacro eieio (&rest fields)
   "Pcase patterns that match EIEIO object EXPVAL.
@@ -740,31 +741,37 @@ Called from the constructor routine."
   "Construct the new object THIS based on SLOTS.")
 
 (cl-defmethod initialize-instance ((this eieio-default-superclass)
-				&optional slots)
-  "Construct the new object THIS based on SLOTS.
-SLOTS is a tagged list where odd numbered elements are tags, and
+				   &optional args)
+  "Construct the new object THIS based on ARGS.
+ARGS is a property list where odd numbered elements are tags, and
 even numbered elements are the values to store in the tagged slot.
 If you overload the `initialize-instance', there you will need to
 call `shared-initialize' yourself, or you can call `call-next-method'
 to have this constructor called automatically.  If these steps are
 not taken, then new objects of your class will not have their values
-dynamically set from SLOTS."
-  ;; First, see if any of our defaults are `lambda', and
-  ;; re-evaluate them and apply the value to our slots.
+dynamically set from ARGS."
   (let* ((this-class (eieio--object-class this))
+         (initargs args)
          (slots (eieio--class-slots this-class)))
     (dotimes (i (length slots))
-      ;; For each slot, see if we need to evaluate it.
+      ;; For each slot, see if we need to evaluate its initform.
       (let* ((slot (aref slots i))
+             (slot-name (eieio-slot-descriptor-name slot))
              (initform (cl--slot-descriptor-initform slot)))
-        ;; Those slots whose initform is constant already have the right
-        ;; value set in the default-object.
-        (unless (macroexp-const-p initform)
-          ;; FIXME: We should be able to just do (aset this (+ i <cst>) dflt)!
-          (eieio-oset this (cl--slot-descriptor-name slot)
-                      (eval initform t))))))
-  ;; Shared initialize will parse our slots for us.
-  (shared-initialize this slots))
+        (unless (or (when-let ((initarg
+                                (car (rassq slot-name
+                                            (eieio--class-initarg-tuples
+                                             this-class)))))
+                      (plist-get initargs initarg))
+                    ;; Those slots whose initform is constant already have
+                    ;; the right value set in the default-object.
+                    (macroexp-const-p initform))
+          ;; FIXME: Use `aset' instead of `eieio-oset', relying on that
+          ;; vector returned by `eieio--class-slots'
+          ;; should be congruent with the object itself.
+          (eieio-oset this slot-name (eval initform t))))))
+  ;; Shared initialize will parse our args for us.
+  (shared-initialize this args))
 
 (cl-defgeneric slot-missing (object slot-name _operation &optional _new-value)
   "Method invoked when an attempt to access a slot in OBJECT fails.
@@ -984,11 +991,6 @@ This may create or delete slots, but does not affect the return value
 of `eq'."
   (error "EIEIO: `change-class' is unimplemented"))
 (define-obsolete-function-alias 'change-class #'eieio-change-class "26.1")
-
-;; Hook ourselves into help system for describing classes and methods.
-;; FIXME: This is not actually needed any more since we can click on the
-;; hyperlink from the constructor's docstring to see the type definition.
-(add-hook 'help-fns-describe-function-functions #'eieio-help-constructor)
 
 (provide 'eieio)
 

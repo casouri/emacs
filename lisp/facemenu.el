@@ -244,6 +244,10 @@ return a string which is inserted.  It may set `facemenu-end-add-face'."
   (define-key map [fc] (cons "Face" 'facemenu-face-menu)))
 (defalias 'facemenu-menu facemenu-menu)
 
+;;;###autoload (autoload 'facemenu-menu "facemenu" nil nil 'keymap)
+;;;###autoload
+(define-key global-map [C-down-mouse-2] 'facemenu-menu)
+
 (easy-menu-add-item
  menu-bar-edit-menu nil
  ["Text Properties" facemenu-menu])
@@ -537,17 +541,18 @@ If the optional argument LIST is non-nil, it should be a list of
 colors to display.  Otherwise, this command computes a list of
 colors that the current display can handle.  Customize
 `list-colors-sort' to change the order in which colors are shown.
-Type `g' or \\[revert-buffer] after customizing `list-colors-sort'
-to redisplay colors in the new order.
+Type \\<help-mode-map>\\[revert-buffer] after customizing \
+`list-colors-sort' to redisplay colors in
+the new order.
 
-If the optional argument BUFFER-NAME is nil, it defaults to *Colors*.
+If the optional argument BUFFER-NAME is nil, it defaults to \"*Colors*\".
 
 If the optional argument CALLBACK is non-nil, it should be a
 function to call each time the user types RET or clicks on a
 color.  The function should accept a single argument, the color name."
   (interactive)
-  (when (and (null list) (> (display-color-cells) 0))
-    (setq list (list-colors-duplicates (defined-colors)))
+  (when (> (display-color-cells) 0)
+    (setq list (list-colors-duplicates (or list (defined-colors))))
     (when list-colors-sort
       ;; Schwartzian transform with `(color key1 key2 key3 ...)'.
       (setq list (mapcar
@@ -714,7 +719,13 @@ they are used to set the face information.
 As a special case, if FACE is `default', then the region is left with NO face
 text property.  Otherwise, selecting the default face would not have any
 effect.  See `facemenu-remove-face-function'."
-  (interactive "*xFace: \nr")
+  (interactive (list (progn
+		       (barf-if-buffer-read-only)
+		       (read-face-name "Use face" (face-at-point t)))
+		     (if (and mark-active (not current-prefix-arg))
+			 (region-beginning))
+		     (if (and mark-active (not current-prefix-arg))
+			 (region-end))))
   (cond
    ((and (eq face 'default)
          (not (eq facemenu-remove-face-function t)))

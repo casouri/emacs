@@ -130,6 +130,7 @@ are not abstract."
 ;;;###autoload
 (defun eieio-help-constructor (ctr)
   "Describe CTR if it is a class constructor."
+  (declare (obsolete "use `describe-function' or `cl--describe-class'." "29.1"))
   (when (class-p ctr)
     (erase-buffer)
     (let ((location (find-lisp-object-file-name ctr 'define-type))
@@ -323,7 +324,7 @@ current expansion depth."
 (defun eieio-sb-expand (text class indent)
   "For button TEXT, expand CLASS at the current location.
 Argument INDENT is the depth of indentation."
-  (cond ((string-match "\\+" text)	;we have to expand this file
+  (cond ((string-search "+" text)	;we have to expand this file
 	 (speedbar-change-expand-button-char ?-)
 	 (speedbar-with-writable
 	   (save-excursion
@@ -332,7 +333,7 @@ Argument INDENT is the depth of indentation."
 	       (while subclasses
 		 (eieio-class-button (car subclasses) (1+ indent))
 		 (setq subclasses (cdr subclasses)))))))
-	((string-match "-" text)	;we have to contract this node
+	((string-search "-" text)	;we have to contract this node
 	 (speedbar-change-expand-button-char ?+)
 	 (speedbar-delete-subblock indent))
 	(t (error "Ooops...  not sure what to do")))

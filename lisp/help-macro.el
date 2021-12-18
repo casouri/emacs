@@ -93,7 +93,8 @@ and then returns."
      "Help command."
      (interactive)
      (let ((line-prompt
-            (substitute-command-keys ,help-line)))
+            (substitute-command-keys ,help-line))
+           (help-buffer-under-preparation t))
        (when three-step-help
          (message "%s" line-prompt))
        (let* ((help-screen ,help-text)
@@ -140,6 +141,7 @@ and then returns."
                    (insert (substitute-command-keys help-screen)))
                  (let ((minor-mode-map-alist new-minor-mode-map-alist))
                    (help-mode)
+                   (variable-pitch-mode)
                    (setq new-minor-mode-map-alist minor-mode-map-alist))
                  (goto-char (point-min))
                  (while (or (memq char (append help-event-list

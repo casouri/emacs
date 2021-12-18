@@ -336,7 +336,7 @@ non-nil value.
 
 ;;;###autoload
 (defun cl-isqrt (x)
-  "Return the integer square root of the (integer) argument."
+  "Return the integer square root of the (integer) argument X."
   (if (and (integerp x) (> x 0))
       (let ((g (ash 2 (/ (logb x) 2)))
 	    g2)
@@ -455,7 +455,7 @@ as an integer unless JUNK-ALLOWED is non-nil."
 
 ;;;###autoload
 (defun cl-random (lim &optional state)
-  "Return a random nonnegative number less than LIM, an integer or float.
+  "Return a pseudo-random nonnegative number less than LIM, an integer or float.
 Optional second arg STATE is a random-state object."
   (or state (setq state cl--random-state))
   ;; Inspired by "ran3" from Numerical Recipes.  Additive congruential method.
@@ -847,7 +847,7 @@ PROPLIST is a list of the sort returned by `symbol-plist'.
               "\n")))
    "\n"))
 
-(defun cl--print-table (header rows)
+(defun cl--print-table (header rows &optional last-slot-on-next-line)
   ;; FIXME: Isn't this functionality already implemented elsewhere?
   (let ((cols (apply #'vector (mapcar #'string-width header)))
         (col-space 2))
@@ -877,7 +877,11 @@ PROPLIST is a list of the sort returned by `symbol-plist'.
                                header))
                 "\n")
         (dolist (row rows)
-          (insert (apply #'format format row) "\n"))))))
+          (insert (apply #'format format row) "\n")
+          (when last-slot-on-next-line
+            (dolist (line (string-lines (car (last row))))
+              (insert "    " line "\n"))
+            (insert "\n")))))))
 
 (defun cl--describe-class-slots (class)
   "Print help description for the slots in CLASS.
@@ -897,14 +901,13 @@ Outputs to the current buffer."
                (list (cl-prin1-to-string (cl--slot-descriptor-name slot))
                      (cl-prin1-to-string (cl--slot-descriptor-type slot))
                      (cl-prin1-to-string (cl--slot-descriptor-initform slot))
-                     (let ((doc (plist-get (cl--slot-descriptor-props slot)
-                                           :documentation)))
+                     (let ((doc (alist-get :documentation
+                                           (cl--slot-descriptor-props slot))))
                        (if (not doc) ""
                          (setq has-doc t)
                          (substitute-command-keys doc)))))
              slots)))
-      (cl--print-table `("Name" "Type" "Default" . ,(if has-doc '("Doc")))
-                       slots-strings))
+      (cl--print-table `("Name" "Type" "Default") slots-strings has-doc))
     (insert "\n")
     (when (> (length cslots) 0)
       (insert (propertize "\nClass Allocated Slots:\n\n" 'face 'bold))

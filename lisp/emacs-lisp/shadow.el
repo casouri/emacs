@@ -31,13 +31,13 @@
 ;; a file with the same name in a later load-path directory.  When
 ;; this is unintentional, it may result in problems that could have
 ;; been easily avoided.  This occurs often (to me) when installing a
-;; new version of emacs and something in the site-lisp directory
-;; has been updated and added to the emacs distribution.  The old
-;; version, now outdated, shadows the new one. This is obviously
+;; new version of Emacs and something in the site-lisp directory
+;; has been updated and added to the Emacs distribution.  The old
+;; version, now outdated, shadows the new one.  This is obviously
 ;; undesirable.
 ;;
 ;; The `list-load-path-shadows' function was run when you installed
-;; this version of emacs. To run it by hand in emacs:
+;; this version of Emacs.  To run it by hand in emacs:
 ;;
 ;;     M-x list-load-path-shadows
 ;;
@@ -115,9 +115,12 @@ See the documentation for `list-load-path-shadows' for further information."
 	  ;; FILE now contains the current file name, with no suffix.
 	  (unless (or (member file files-seen-this-dir)
 		      ;; Ignore these files.
-		      (member file (list "subdirs" "leim-list"
-					 (file-name-sans-extension
-					  dir-locals-file))))
+		      (member file
+                              (list "subdirs" "leim-list"
+				    (file-name-sans-extension dir-locals-file)
+                                    (concat
+				     (file-name-sans-extension dir-locals-file)
+                                     "-2"))))
 	    ;; File has not been seen yet in this directory.
 	    ;; This test prevents us declaring that XXX.el shadows
 	    ;; XXX.elc (or vice-versa) when they are in the same directory.
@@ -148,9 +151,6 @@ See the documentation for `list-load-path-shadows' for further information."
     ;; Return the list of shadowings.
     shadows))
 
-(define-obsolete-function-alias 'find-emacs-lisp-shadows
-  'load-path-shadows-find "23.3")
-
 ;; Return true if neither file exists, or if both exist and have identical
 ;; contents.
 (defun load-path-shadows-same-file-or-nonexistent (f1 f2)
@@ -178,7 +178,7 @@ See the documentation for `list-load-path-shadows' for further information."
   "Keywords to highlight in `load-path-shadows-mode'.")
 
 (define-derived-mode load-path-shadows-mode fundamental-mode "LP-Shadows"
-  "Major mode for load-path shadows buffer."
+  "Major mode for `load-path' shadows buffer."
   (setq-local font-lock-defaults
               '((load-path-shadows-font-lock-keywords)))
   (setq buffer-undo-list t

@@ -107,27 +107,27 @@ back to the top level.")
   "Set up the environment for an Edebug test BODY, run it, and clean up."
   (declare (debug (body)))
   `(edebug-tests-with-default-config
-    (let ((edebug-tests-failure-in-post-command nil)
-          (edebug-tests-temp-file (make-temp-file "edebug-tests-" nil ".el"))
-          (find-file-suppress-same-file-warnings t))
-      (edebug-tests-setup-code-file edebug-tests-temp-file)
-      (ert-with-message-capture
-       edebug-tests-messages
-       (unwind-protect
-           (with-current-buffer (find-file edebug-tests-temp-file)
-             (read-only-mode)
-             (setq lexical-binding t)
-             (eval-buffer)
-             ,@body
-             (when edebug-tests-failure-in-post-command
-               (signal (car edebug-tests-failure-in-post-command)
-                       (cdr edebug-tests-failure-in-post-command))))
-         (unload-feature 'edebug-test-code)
-         (with-current-buffer (find-file-noselect edebug-tests-temp-file)
-           (set-buffer-modified-p nil))
-         (ignore-errors (kill-buffer (find-file-noselect
-                                      edebug-tests-temp-file)))
-         (ignore-errors (delete-file edebug-tests-temp-file)))))))
+    (ert-with-temp-file edebug-tests-temp-file
+      :suffix ".el"
+      (let ((edebug-tests-failure-in-post-command nil)
+            (find-file-suppress-same-file-warnings t))
+        (edebug-tests-setup-code-file edebug-tests-temp-file)
+        (ert-with-message-capture
+            edebug-tests-messages
+          (unwind-protect
+              (with-current-buffer (find-file edebug-tests-temp-file)
+                (read-only-mode)
+                (setq lexical-binding t)
+                (eval-buffer)
+                ,@body
+                (when edebug-tests-failure-in-post-command
+                  (signal (car edebug-tests-failure-in-post-command)
+                          (cdr edebug-tests-failure-in-post-command))))
+            (unload-feature 'edebug-test-code)
+            (with-current-buffer (find-file-noselect edebug-tests-temp-file)
+              (set-buffer-modified-p nil))
+            (ignore-errors (kill-buffer (find-file-noselect
+                                         edebug-tests-temp-file)))))))))
 
 ;; The following macro and its support functions implement an extension
 ;; to keyboard macros to allow interleaving of keyboard macro
@@ -723,7 +723,7 @@ test and possibly others should be updated."
           (edebug-on-error nil)
           error-message
           (command-error-function (lambda (&rest args)
-                                    (setq error-message (cl-cadar args)))))
+                                    (setq error-message (cadar args)))))
      (edebug-tests-run-kbd-macro
       "@"    (edebug-tests-should-be-at "format-node" "start")
       "SPC"  (edebug-tests-should-be-at "format-node" "vectorp")
@@ -744,7 +744,7 @@ test and possibly others should be updated."
           (edebug-on-error nil)
           (error-message "")
           (command-error-function (lambda (&rest args)
-                                    (setq error-message (cl-cadar args)))))
+                                    (setq error-message (cadar args)))))
      (edebug-tests-run-kbd-macro
       "@ SPC SPC SPC SPC SPC"
       (edebug-tests-should-be-at "try-flavors" "macro")
@@ -860,7 +860,8 @@ test and possibly others should be updated."
    (let ((inhibit-read-only t))
      (delete-region (point-min) (point-max))
      (insert  "`1"))
-   (edebug-eval-defun nil)
+   (with-suppressed-warnings ((obsolete edebug-eval-defun))
+     (edebug-eval-defun nil))
    ;; `eval-defun' outputs its message to the echo area in a rather
    ;; funny way, so the "1" and the " (#o1, #x1, ?\C-a)" end up placed
    ;; there in separate pieces (via `print' rather than via `message').
@@ -870,7 +871,8 @@ test and possibly others should be updated."
 
    (setq edebug-initial-mode 'go)
    ;; In Bug#23651 Edebug would hang reading `1.
-   (edebug-eval-defun t)))
+   (with-suppressed-warnings ((obsolete edebug-eval-defun))
+     (edebug-eval-defun t))))
 
 (ert-deftest edebug-tests-trivial-comma ()
   "Edebug can read a trivial comma expression (Bug#23651)."
@@ -879,7 +881,8 @@ test and possibly others should be updated."
    (delete-region (point-min) (point-max))
    (insert  ",1")
    (read-only-mode)
-   (should-error (edebug-eval-defun t))))
+   (with-suppressed-warnings ((obsolete edebug-eval-defun))
+     (should-error (edebug-eval-defun t)))))
 
 (ert-deftest edebug-tests-circular-read-syntax ()
   "Edebug can instrument code using circular read object syntax (Bug#23660)."

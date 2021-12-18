@@ -8250,6 +8250,39 @@ decode_coding_object (struct coding_system *coding,
 }
 
 
+/* Encode the text in the range FROM/FROM_BYTE and TO/TO_BYTE in
+   SRC_OBJECT into DST_OBJECT by coding context CODING.
+
+   SRC_OBJECT is a buffer, a string, or Qnil.
+
+   If it is a buffer, the text is at point of the buffer.  FROM and TO
+   are positions in the buffer.
+
+   If it is a string, the text is at the beginning of the string.
+   FROM and TO are indices into the string.
+
+   If it is nil, the text is at coding->source.  FROM and TO are
+   indices into coding->source.
+
+   DST_OBJECT is a buffer, Qt, or Qnil.
+
+   If it is a buffer, the encoded text is inserted at point of the
+   buffer.  If the buffer is the same as SRC_OBJECT, the source text
+   is replaced with the encoded text.
+
+   If it is Qt, a string is made from the encoded text, and set in
+   CODING->dst_object.  However, if CODING->raw_destination is non-zero,
+   the encoded text is instead returned in CODING->destination as a C string,
+   and the caller is responsible for freeing CODING->destination.  This
+   feature is meant to be used when the caller doesn't need the result as
+   a Lisp string, and wants to avoid unnecessary consing of large strings.
+
+   If it is Qnil, the encoded text is stored at CODING->destination.
+   The caller must allocate CODING->dst_bytes bytes at
+   CODING->destination by xmalloc.  If the encoded text is longer than
+   CODING->dst_bytes, CODING->destination is reallocated by xrealloc
+   (and CODING->dst_bytes is enlarged accordingly).  */
+
 void
 encode_coding_object (struct coding_system *coding,
 		      Lisp_Object src_object,
@@ -8275,11 +8308,14 @@ encode_coding_object (struct coding_system *coding,
 
   attrs = CODING_ID_ATTRS (coding->id);
 
-  if (EQ (src_object, dst_object))
+  bool same_buffer = false;
+  if (EQ (src_object, dst_object) && BUFFERP (src_object))
     {
       struct Lisp_Marker *tail;
 
-      for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
+      same_buffer = true;
+
+      for (tail = BUF_MARKERS (XBUFFER (src_object)); tail; tail = tail->next)
 	{
 	  tail->need_adjustment
 	    = tail->charpos == (tail->insertion_type ? from : to);
@@ -8298,7 +8334,7 @@ encode_coding_object (struct coding_system *coding,
       else
 	insert_1_both ((char *) coding->source + from, chars, bytes, 0, 0, 0);
 
-      if (EQ (src_object, dst_object))
+      if (same_buffer)
 	{
 	  set_buffer_internal (XBUFFER (src_object));
 	  saved_pt = PT, saved_pt_byte = PT_BYTE;
@@ -8329,7 +8365,7 @@ encode_coding_object (struct coding_system *coding,
     {
       code_conversion_save (0, 0);
       set_buffer_internal (XBUFFER (src_object));
-      if (EQ (src_object, dst_object))
+      if (same_buffer)
 	{
 	  saved_pt = PT, saved_pt_byte = PT_BYTE;
 	  coding->src_object = del_range_1 (from, to, 1, 1);
@@ -9418,12 +9454,14 @@ code_convert_region (Lisp_Object start, Lisp_Object end,
 
 DEFUN ("decode-coding-region", Fdecode_coding_region, Sdecode_coding_region,
        3, 4, "r\nzCoding system: ",
-       doc: /* Decode the current region from the specified coding system.
+       doc: /* Decode the current region using the specified coding system.
+Interactively, prompt for the coding system to decode the region, and
+replace the region with the decoded text.
 
-What's meant by \"decoding\" is transforming bytes into text
-(characters).  If, for instance, you have a region that contains data
-that represents the two bytes #xc2 #xa9, after calling this function
-with the utf-8 coding system, the region will contain the single
+\"Decoding\" means transforming bytes into readable text (characters).
+If, for instance, you have a region that contains data that represents
+the two bytes #xc2 #xa9, after calling this function with the utf-8
+coding system, the region will contain the single
 character ?\\N{COPYRIGHT SIGN}.
 
 When called from a program, takes four arguments:
@@ -9448,7 +9486,9 @@ not fully specified.)  */)
 
 DEFUN ("encode-coding-region", Fencode_coding_region, Sencode_coding_region,
        3, 4, "r\nzCoding system: ",
-       doc: /* Encode the current region by specified coding system.
+       doc: /* Encode the current region using th specified coding system.
+Interactively, prompt for the coding system to encode the region, and
+replace the region with the bytes that are the result of the encoding.
 
 What's meant by \"encoding\" is transforming textual data (characters)
 into bytes.  If, for instance, you have a region that contains the
@@ -9476,7 +9516,7 @@ not fully specified.)  */)
 }
 
 /* Whether STRING only contains chars in the 0..127 range.  */
-static bool
+bool
 string_ascii_p (Lisp_Object string)
 {
   ptrdiff_t nbytes = SBYTES (string);
@@ -10394,8 +10434,7 @@ encode_file_name (Lisp_Object fname)
      cause subtle bugs because the system would silently use a
      different filename than expected.  Perform this check after
      encoding to not miss NUL bytes introduced through encoding.  */
-  CHECK_TYPE (memchr (SSDATA (encoded), '\0', SBYTES (encoded)) == NULL,
-              Qfilenamep, fname);
+  CHECK_STRING_NULL_BYTES (encoded);
   return encoded;
 }
 

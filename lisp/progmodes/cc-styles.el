@@ -406,7 +406,7 @@ a null operation."
 
 ;;;###autoload
 (defun c-add-style (style description &optional set-p)
-  "Adds a style to `c-style-alist', or updates an existing one.
+  "Add a style to `c-style-alist', or update an existing one.
 STYLE is a string identifying the style to add or update.  DESCRIPTION
 is an association list describing the style and must be of the form:
 
@@ -444,17 +444,19 @@ STYLE using `c-set-style' if the optional SET-P flag is non-nil."
 			  defstr))
 	 (prompt (concat symname " offset " defstr))
 	 (keymap (make-sparse-keymap))
-	 (minibuffer-completion-table obarray)
-	 (minibuffer-completion-predicate 'fboundp)
 	 offset input)
     ;; In principle completing-read is used here, but SPC is unbound
     ;; to make it less annoying to enter lists.
     (set-keymap-parent keymap minibuffer-local-completion-map)
     (define-key keymap " " 'self-insert-command)
     (while (not offset)
-      (setq input (read-from-minibuffer prompt nil keymap t
-					'c-read-offset-history
-					(format "%s" oldoff)))
+      (minibuffer-with-setup-hook
+          (lambda ()
+            (setq-local minibuffer-completion-table obarray)
+            (setq-local minibuffer-completion-predicate 'fboundp))
+        (setq input (read-from-minibuffer prompt nil keymap t
+                                          'c-read-offset-history
+                                          (format "%s" oldoff))))
       (if (c-valid-offset input)
 	  (setq offset input)
 	;; error, but don't signal one, keep trying

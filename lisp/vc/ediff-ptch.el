@@ -128,18 +128,19 @@ You probably don't want to change that, unless you are using an obscure patch
 program."
   :type 'regexp)
 
-;; The buffer of the patch file.  Local to control buffer.
-(ediff-defvar-local ediff-patchbufer nil "")
+(ediff-defvar-local ediff-patchbufer nil
+  "The buffer of the patch file.  Local to control buffer.")
 
-;; The buffer where patch displays its diagnostics.
-(ediff-defvar-local ediff-patch-diagnostics nil "")
+(ediff-defvar-local ediff-patch-diagnostics nil
+  "The buffer where patch displays its diagnostics.")
 
-;; Map of patch buffer.  Has the form:
-;;    ((filename1 marker1 marker2) (filename2 marker1 marker2) ...)
-;; where filenames are files to which patch would have applied the patch;
-;; marker1 delimits the beginning of the corresponding patch and marker2 does
-;; it for the end.
-(ediff-defvar-local ediff-patch-map nil "")
+(ediff-defvar-local ediff-patch-map nil
+  "Map of patch buffer.
+Has the form:
+   ((filename1 marker1 marker2) (filename2 marker1 marker2) ...)
+where filenames are files to which patch would have applied the patch;
+marker1 delimits the beginning of the corresponding patch and marker2 does
+it for the end.")
 
 ;; strip prefix from filename
 ;; returns /dev/null, if can't strip prefix
@@ -414,7 +415,9 @@ other files, enter `/dev/null'.
 		  (with-output-to-temp-buffer ediff-msg-buffer
 		    (ediff-with-current-buffer standard-output
 		      (fundamental-mode))
-		    (princ (format-message "
+                    (with-current-buffer standard-output
+                      (insert (format-message
+                              (substitute-command-keys "
 Ediff has inferred that
 	%s
 	%s
@@ -422,10 +425,10 @@ are two possible targets for applying the patch.
 Both files seem to be plausible alternatives.
 
 Please advise:
-    Type `y' to use %s as the target;
-    Type `n' to use %s as the target.
-"
-				   file1 file2 file1 file2)))
+    Type \\`y' to use %s as the target;
+    Type \\`n' to use %s as the target.
+")
+                                            file1 file2 file1 file2))))
 		  (setcar session-file-object
 			  (if (y-or-n-p (format "Use %s ? " file1))
 			      (progn
@@ -502,15 +505,11 @@ are two possible targets for this %spatch.  However, these files do not exist."
 	patch-file-name)
     (setq patch-file-name
 	  (read-file-name
-	   (format "Patch is in file%s: "
-		   (cond ((and buffer-file-name
-			       (equal (expand-file-name dir)
-				      (file-name-directory buffer-file-name)))
-			  (concat
-			   " (default "
-			   (file-name-nondirectory buffer-file-name)
-			   ")"))
-			 (t "")))
+           (format-prompt "Patch is in file"
+                          (and buffer-file-name
+                               (equal (expand-file-name dir)
+                                      (file-name-directory buffer-file-name))
+                               (file-name-nondirectory buffer-file-name)))
 	   dir buffer-file-name 'must-match))
     (if (file-directory-p patch-file-name)
 	(error "Patch file cannot be a directory: %s" patch-file-name)
@@ -826,7 +825,8 @@ you can still examine the changes via M-x ediff-files"
 	    ediff-patch-diagnostics patch-diagnostics))
 
     (bury-buffer patch-diagnostics)
-    (message "Type `P', if you need to see patch diagnostics")
+    (message (substitute-command-keys
+              "Type \\`P', if you need to see patch diagnostics"))
     ctl-buf))
 
 (defun ediff-multi-patch-internal (patch-buf &optional startup-hooks)
