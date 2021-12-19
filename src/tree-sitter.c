@@ -1384,7 +1384,7 @@ else goes wrong.  */)
     {
       xsignal2 (Qtree_sitter_query_error,
 		build_string (ts_query_error_to_string (error_type)),
-		make_fixnum (error_offset));
+		make_fixnum (error_offset + 1));
     }
   if (!NILP (beg) && !NILP (end))
     {
