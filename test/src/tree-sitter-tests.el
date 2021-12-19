@@ -153,7 +153,7 @@
         (should
          (equal
           "(type field: (_) @capture .) ? * + \"return\""
-          (tree-sitter-expand-pattern
+          (tree-sitter-expand-query
            '((type field: (_) @capture :anchor)
              :? :* :+ "return"))))))))
 
