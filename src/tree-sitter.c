@@ -819,6 +819,8 @@ A node "has error" if itself is a syntax error or contains any syntax
 errors.  */)
   (Lisp_Object node, Lisp_Object property)
 {
+  if (NILP (node))
+    return Qnil;
   CHECK_TS_NODE (node);
   CHECK_SYMBOL (property);
   TSNode ts_node = XTS_NODE (node)->node;
