@@ -949,8 +949,8 @@ uses the first parser in `tree-sitter-parser-list'."
 
 (defun tree-sitter-check-query (query language)
   "Check if QUERY is valid for LANGUAGE.
-If QUERY is invalid, display the query in a popup buffer and
-highlights the offending pattern."
+If QUERY is invalid, display the query in a popup buffer, jumps
+to the offending pattern and highlight the pattern."
   (let ((buf (get-buffer-create "*tree-sitter check query*")))
     (with-temp-buffer
       (tree-sitter-get-parser-create language)
@@ -969,7 +969,8 @@ highlights the offending pattern."
              (put-text-property start (point) 'face 'error)
              (message "%s" (buffer-substring start (point)))
              (goto-char (point-min))
-             (insert (format "%s: %d\n" message start))))
+             (insert (format "%s: %d\n" message start))
+             (forward-char start)))
          (pop-to-buffer buf))))))
 
 ;;; Etc
