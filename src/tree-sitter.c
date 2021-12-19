@@ -1065,9 +1065,9 @@ If any one of NODE1 and NODE2 is nil, return nil.  */)
 
 /* If we decide to pre-load tree-sitter.el, maybe we can implement
    this function in Lisp.  */
-DEFUN ("tree-sitter-expand-pattern-1",
-       Ftree_sitter_expand_pattern_1,
-       Stree_sitter_expand_pattern_1, 1, 1, 0,
+DEFUN ("tree-sitter-expand-pattern",
+       Ftree_sitter_expand_pattern,
+       Stree_sitter_expand_pattern, 1, 1, 0,
        doc: /* Expand PATTERN to its string form.
 
 PATTERN can be
@@ -1109,19 +1109,19 @@ explanation.  */)
   if (VECTORP (pattern) || CONSP (pattern))
     return concat3 (opening_delimeter,
 		    Fmapconcat (intern_c_string
-				("tree-sitter-expand-pattern-1"),
+				("tree-sitter-expand-pattern"),
 				pattern,
 				build_pure_c_string (" ")),
 		    closing_delimiter);
   return CALLN (Fformat, build_pure_c_string("%S"), pattern);
 }
 
-DEFUN ("tree-sitter-expand-pattern",
-       Ftree_sitter_expand_pattern,
-       Stree_sitter_expand_pattern, 1, 1, 0,
-       doc: /* Expand PATTERN-LIST to its string form.
+DEFUN ("tree-sitter-expand-query",
+       Ftree_sitter_expand_query,
+       Stree_sitter_expand_query, 1, 1, 0,
+       doc: /* Expand sexp QUERY to its string form.
 
-A PATTERN in PATTERN-LIST can be
+A PATTERN in QUERY can be
 
     :anchor
     :?
@@ -1139,10 +1139,10 @@ A PATTERN in PATTERN-LIST can be
 
 Consult Info node `(elisp)Pattern Matching' form detailed
 explanation.  */)
-  (Lisp_Object pattern_list)
+  (Lisp_Object query)
 {
-  return Fmapconcat (intern_c_string ("tree-sitter-expand-pattern-1"),
-		     pattern_list, build_pure_c_string (" "));
+  return Fmapconcat (intern_c_string ("tree-sitter-expand-pattern"),
+		     query, build_pure_c_string (" "));
 }
 
 char*
@@ -1354,7 +1354,7 @@ else goes wrong.  */)
     CHECK_INTEGER (end);
 
   if (CONSP (query))
-    query = Ftree_sitter_expand_pattern (query);
+    query = Ftree_sitter_expand_query (query);
   else
     CHECK_STRING (query);
 
@@ -1370,8 +1370,12 @@ else goes wrong.  */)
   /* Initialize query objects, and execute query.  */
   uint32_t error_offset;
   TSQueryError error_type;
+  /* TODO: We could cache the query object, so that repeatedly
+     querying with the same query can reuse the query object.  It also
+     saves us from expanding the sexp query into a string.  I don't
+     know how much time that could save though.  */
   TSQuery *ts_query = ts_query_new (lang, source, strlen (source),
-				 &error_offset, &error_type);
+				    &error_offset, &error_type);
   TSQueryCursor *cursor = ts_query_cursor_new ();
 
   if (ts_query == NULL)
@@ -1528,7 +1532,7 @@ the library.  */);
   defsubr (&Stree_sitter_node_descendant_for_range);
   defsubr (&Stree_sitter_node_eq);
 
-  defsubr (&Stree_sitter_expand_pattern_1);
   defsubr (&Stree_sitter_expand_pattern);
+  defsubr (&Stree_sitter_expand_query);
   defsubr (&Stree_sitter_query_capture);
 }

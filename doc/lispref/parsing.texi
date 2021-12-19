@@ -1037,6 +1037,12 @@ is written in s-expression as
 @end group
 @end example
 
+@defun tree-sitter-expand-query query
+This function expands the s-expression @var{query} into a string
+query.  It is usually a good idea to expand the s-expression patterns
+into strings for font-lock queries since they are called repeatedly.
+@end defun
+
 Tree-sitter project's documentation about pattern-matching can be
 found at
 @uref{https://tree-sitter.github.io/tree-sitter/using-parsers#pattern-matching-with-queries}.
