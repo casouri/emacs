@@ -59,12 +59,13 @@ passed to tree-sitter functions as the @var{language} argument.
 Tree-sitter language definitions are distributed as dynamic
 libraries. In order to use a language definition in Emacs, you need to
 make sure that the dynamic library is installed on the system, either
-in standard locations or in @code{LD_LIBRARY_PATH}.  If Emacs cannot
-find the library or has problem loading it, Emacs signals
+in standard locations or in @code{LD_LIBRARY_PATH} (on some systems,
+it is @code{DYLD_LIBRARY_PATH}).  If Emacs cannot find the library or
+has problem loading it, Emacs signals
 @var{tree-sitter-load-language-error}.  The signal data is a list of
 specific error messages.
 
-@defun tree-sitter-language-exists-p language
+@defun tree-sitter-language-available-p language
 This function checks whether the dynamic library for @var{language} is
 present on the system, and return non-nil if it is.
 @end defun

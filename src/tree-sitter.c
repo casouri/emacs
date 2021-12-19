@@ -195,8 +195,9 @@ ts_load_language (Lisp_Object language_symbol, bool signal)
   return lang;
 }
 
-DEFUN ("tree-sitter-language-exists-p",
-       Ftree_sitter_langauge_exists_p, Stree_sitter_language_exists_p,
+DEFUN ("tree-sitter-language-available-p",
+       Ftree_sitter_langauge_available_p,
+       Stree_sitter_language_available_p,
        1, 1, 0,
        doc: /* Return non-nil if LANGUAGE exists and is loadable.  */)
   (Lisp_Object language)
@@ -1493,6 +1494,8 @@ to this alist, where LIBRARY-BASE-NAME is the filename of the dynamic
 library without extension, FUNCTION-NAME is the function provided by
 the library.  */);
   Vtree_sitter_load_name_override_list = Qnil;
+
+  defsubr (&Stree_sitter_language_available_p);
 
   defsubr (&Stree_sitter_parser_p);
   defsubr (&Stree_sitter_node_p);
