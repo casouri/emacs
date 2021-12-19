@@ -1161,6 +1161,8 @@ ts_query_error_to_string (TSQueryError error)
       return "Capture error at";
     case TSQueryErrorStructure:
       return "Structure error at";
+    default:
+      return "Unknown error";
     }
 }
 
