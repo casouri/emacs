@@ -382,14 +382,15 @@ If LOUDLY is non-nil, message some debugging information."
 
 (defun tree-sitter-font-lock-enable ()
   "Enable tree-sitter font-locking for the current buffer."
-  (setq-local tree-sitter-font-lock-settings
-              (mapcar (lambda (elm) ; ELM = (DEFAULT :setting ...)
-                        (font-lock-eval-keywords
-                         (font-lock-choose-keywords
-                          (nth 0 elm) ; (nth 0 elm) = DEFAULT
-	                  (font-lock-value-in-major-mode
-                           font-lock-maximum-decoration))))
-                      tree-sitter-font-lock-defaults))
+  (let ((default (car tree-sitter-font-lock-defaults))
+        (attributes (cdr tree-sitter-font-lock-defaults)))
+    (ignore attributes)
+    (setq-local tree-sitter-font-lock-settings
+                (font-lock-eval-keywords
+                 (font-lock-choose-keywords
+                  default
+	          (font-lock-value-in-major-mode
+                   font-lock-maximum-decoration)))))
   (setq-local font-lock-fontify-region-function
               #'tree-sitter-font-lock-fontify-region))
 
@@ -901,14 +902,14 @@ in `tree-sitter-parser-list'."
       (setq
        name
        (concat
-        "("
-        (or (tree-sitter-node-type node)
-            "N/A")
         (if (tree-sitter-node-field-name node)
             (format " %s: " (tree-sitter-node-field-name node))
           " ")
+        (if (tree-sitter-node-check node 'named) "(" "\"")
+        (or (tree-sitter-node-type node)
+            "N/A")
         name
-        ")")))
+        (if (tree-sitter-node-check node 'named) ")" "\""))))
     (setq tree-sitter--inspect-name name)
     (force-mode-line-update)
     (when arg
@@ -945,6 +946,31 @@ uses the first parser in `tree-sitter-parser-list'."
     (setq mode-line-misc-info
           (remove '(:eval tree-sitter--inspect-name)
                   mode-line-misc-info))))
+
+(defun tree-sitter-check-query (query language)
+  "Check if QUERY is valid for LANGUAGE.
+If QUERY is invalid, display the query in a popup buffer and
+highlights the offending pattern."
+  (let ((buf (get-buffer-create "*tree-sitter check query*")))
+    (with-temp-buffer
+      (tree-sitter-get-parser-create language)
+      (condition-case err
+          (progn (tree-sitter-query-in language query)
+                 (message "QUERY is valid"))
+        (tree-sitter-query-error
+         (with-current-buffer buf
+           (let* ((data (cdr err))
+                  (message (nth 0 data))
+                  (start (nth 1 data)))
+             (erase-buffer)
+             (insert query)
+             (goto-char start)
+             (search-forward " " nil t)
+             (put-text-property start (point) 'face 'error)
+             (message "%s" (buffer-substring start (point)))
+             (goto-char (point-min))
+             (insert (format "%s: %d\n" message start))))
+         (pop-to-buffer buf))))))
 
 ;;; Etc
 
