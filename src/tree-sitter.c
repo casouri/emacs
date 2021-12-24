@@ -1483,7 +1483,7 @@ sync with the buffer's content.  */);
   Vtree_sitter_parser_list = Qnil;
   Fmake_variable_buffer_local (Qtree_sitter_parser_list);
 
-  DEFVAR_LISP ("tree-sitter-load-name-override_list",
+  DEFVAR_LISP ("tree-sitter-load-name-override-list",
 	       Vtree_sitter_load_name_override_list,
 	       doc:
 	       /* An override alist for irregular tree-sitter libraries.

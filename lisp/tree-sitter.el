@@ -762,105 +762,105 @@ and the lib name in string-face."
                 collect `((match nil ,type nil 1) first-sibling 0)))))
 
 (defvar ts-c-tree-sitter-settings-1
-  '(tree-sitter-c
-    ((null) @font-lock-constant-face
-     (true) @font-lock-constant-face
-     (false) @font-lock-constant-face
+  '((tree-sitter-c
+     ((null) @font-lock-constant-face
+      (true) @font-lock-constant-face
+      (false) @font-lock-constant-face
 
-     (comment) @font-lock-comment-face
+      (comment) @font-lock-comment-face
 
-     (system_lib_string) @ts-c-fontify-system-lib
+      (system_lib_string) @ts-c-fontify-system-lib
 
-     (unary_expression
-      operator: _ @font-lock-negation-char-face)
+      (unary_expression
+       operator: _ @font-lock-negation-char-face)
 
-     (string_literal) @font-lock-string-face
-     (char_literal) @font-lock-string-face
-
-
-
-     (function_definition
-      declarator: (identifier) @font-lock-function-name-face)
-
-     (declaration
-      declarator: (identifier) @font-lock-function-name-face)
-
-     (function_declarator
-      declarator: (identifier) @font-lock-function-name-face)
+      (string_literal) @font-lock-string-face
+      (char_literal) @font-lock-string-face
 
 
 
-     (init_declarator
-      declarator: (identifier) @font-lock-variable-name-face)
+      (function_definition
+       declarator: (identifier) @font-lock-function-name-face)
 
-     (parameter_declaration
-      declarator: (identifier) @font-lock-variable-name-face)
+      (declaration
+       declarator: (identifier) @font-lock-function-name-face)
 
-     (preproc_def
-      name: (identifier) @font-lock-variable-name-face)
+      (function_declarator
+       declarator: (identifier) @font-lock-function-name-face)
 
-     (enumerator
-      name: (identifier) @font-lock-variable-name-face)
 
-     (field_identifier) @font-lock-variable-name-face
 
-     (parameter_list
+      (init_declarator
+       declarator: (identifier) @font-lock-variable-name-face)
+
       (parameter_declaration
-       (identifier) @font-lock-variable-name-face))
+       declarator: (identifier) @font-lock-variable-name-face)
 
-     (pointer_declarator
-      declarator: (identifier) @font-lock-variable-name-face)
+      (preproc_def
+       name: (identifier) @font-lock-variable-name-face)
 
-     (array_declarator
-      declarator: (identifier) @font-lock-variable-name-face)
+      (enumerator
+       name: (identifier) @font-lock-variable-name-face)
 
-     (preproc_function_def
-      name: (identifier) @font-lock-variable-name-face
-      parameters: (preproc_params
-                   (identifier) @font-lock-variable-name-face))
+      (field_identifier) @font-lock-variable-name-face
+
+      (parameter_list
+       (parameter_declaration
+        (identifier) @font-lock-variable-name-face))
+
+      (pointer_declarator
+       declarator: (identifier) @font-lock-variable-name-face)
+
+      (array_declarator
+       declarator: (identifier) @font-lock-variable-name-face)
+
+      (preproc_function_def
+       name: (identifier) @font-lock-variable-name-face
+       parameters: (preproc_params
+                    (identifier) @font-lock-variable-name-face))
 
 
 
-     (type_identifier) @font-lock-type-face
-     (primitive_type) @font-lock-type-face
+      (type_identifier) @font-lock-type-face
+      (primitive_type) @font-lock-type-face
 
-     "auto" @font-lock-keyword-face
-     "break" @font-lock-keyword-face
-     "case" @font-lock-keyword-face
-     "const" @font-lock-keyword-face
-     "continue" @font-lock-keyword-face
-     "default" @font-lock-keyword-face
-     "do" @font-lock-keyword-face
-     "else" @font-lock-keyword-face
-     "enum" @font-lock-keyword-face
-     "extern" @font-lock-keyword-face
-     "for" @font-lock-keyword-face
-     "goto" @font-lock-keyword-face
-     "if" @font-lock-keyword-face
-     "register" @font-lock-keyword-face
-     "return" @font-lock-keyword-face
-     "sizeof" @font-lock-keyword-face
-     "static" @font-lock-keyword-face
-     "struct" @font-lock-keyword-face
-     "switch" @font-lock-keyword-face
-     "typedef" @font-lock-keyword-face
-     "union" @font-lock-keyword-face
-     "volatile" @font-lock-keyword-face
-     "while" @font-lock-keyword-face
+      "auto" @font-lock-keyword-face
+      "break" @font-lock-keyword-face
+      "case" @font-lock-keyword-face
+      "const" @font-lock-keyword-face
+      "continue" @font-lock-keyword-face
+      "default" @font-lock-keyword-face
+      "do" @font-lock-keyword-face
+      "else" @font-lock-keyword-face
+      "enum" @font-lock-keyword-face
+      "extern" @font-lock-keyword-face
+      "for" @font-lock-keyword-face
+      "goto" @font-lock-keyword-face
+      "if" @font-lock-keyword-face
+      "register" @font-lock-keyword-face
+      "return" @font-lock-keyword-face
+      "sizeof" @font-lock-keyword-face
+      "static" @font-lock-keyword-face
+      "struct" @font-lock-keyword-face
+      "switch" @font-lock-keyword-face
+      "typedef" @font-lock-keyword-face
+      "union" @font-lock-keyword-face
+      "volatile" @font-lock-keyword-face
+      "while" @font-lock-keyword-face
 
-     "long" @font-lock-type-face
-     "short" @font-lock-type-face
-     "signed" @font-lock-type-face
-     "unsigned" @font-lock-type-face
+      "long" @font-lock-type-face
+      "short" @font-lock-type-face
+      "signed" @font-lock-type-face
+      "unsigned" @font-lock-type-face
 
-     "#include" @font-lock-preprocessor-face
-     "#define" @font-lock-preprocessor-face
-     "#ifdef" @font-lock-preprocessor-face
-     "#ifndef" @font-lock-preprocessor-face
-     "#endif" @font-lock-preprocessor-face
-     "#else" @font-lock-preprocessor-face
-     "#elif" @font-lock-preprocessor-face
-     )))
+      "#include" @font-lock-preprocessor-face
+      "#define" @font-lock-preprocessor-face
+      "#ifdef" @font-lock-preprocessor-face
+      "#ifndef" @font-lock-preprocessor-face
+      "#endif" @font-lock-preprocessor-face
+      "#else" @font-lock-preprocessor-face
+      "#elif" @font-lock-preprocessor-face
+      ))))
 
 
 ;;; Debugging
