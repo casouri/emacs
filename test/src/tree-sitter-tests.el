@@ -118,7 +118,10 @@
       (should (equal "(object (pair key: (string (string_content)) value: (string (string_content))))"
                      (tree-sitter-node-string
                       (tree-sitter-node-descendant-for-range
-                       root-node 6 7 t)))))))
+                       root-node 6 7 t))))
+      ;; `tree-sitter-node-eq'.
+      (should (tree-sitter-node-eq root-node root-node))
+      (should (not (tree-sitter-node-eq root-node doc-node))))))
 
 (ert-deftest tree-sitter-query-api ()
   "Tests for query API."
@@ -134,17 +137,23 @@
       (dolist (pattern
                '("(string) @string
 (pair key: (_) @keyword)
-(number) @number"
+((_) @bob (#match \"^B.b$\" @bob))
+(number) @number
+((number) @n3 (#equal \"3\" @n3)) "
                  ((string) @string
                   (pair key: (_) @keyword)
-                  (number) @number)))
+                  ((_) @bob (:match "^B.b$" @bob))
+                  (number) @number
+                  ((number) @n3 (:equal "3" @n3)))))
         (should
          (equal
           '((number . "1") (number . "2")
             (keyword . "\"name\"")
             (string . "\"name\"")
             (string . "\"Bob\"")
-            (number . "3"))
+            (bob . "Bob")
+            (number . "3")
+            (n3 . "3"))
           (mapcar (lambda (entry)
                     (cons (car entry)
                           (tree-sitter-node-text
@@ -220,11 +229,10 @@
                       (current-buffer) 'tree-sitter-json))
         (setq root-node (tree-sitter-parser-root-node
                          parser)))
-      ;; TODO: signaling error crashes Emacs on Mac.
-      ;; (should-error
-      ;;  (tree-sitter-parser-set-included-ranges
-      ;;   parser '((1 . 6) (5 . 20)))
-      ;;  :type '(tree-sitter-set-range-error))
+      (should-error
+       (tree-sitter-parser-set-included-ranges
+        parser '((1 . 6) (5 . 20)))
+       :type '(tree-sitter-set-range-error))
 
       (tree-sitter-parser-set-included-ranges
        parser '((1 . 6) (12 . 20) (23 . 29)))
@@ -271,9 +279,8 @@
 
 ;; TODO
 ;; - Functions in tree-sitter.el
-;; - tree-sitter-node-eq
-;; - tree-sitter-load-name-list
-;; - predicates
+;; - tree-sitter-load-name-override-list
+;; - query predicates
 
 (provide 'tree-sitter-tests)
 ;;; tree-sitter-tests.el ends here
