@@ -361,7 +361,7 @@ This function is like @code{tree-sitter-get-parser-create}, but it
 always creates a new parser.
 @end defun
 
-@defun tree-sitter-create-parser buffer language
+@defun tree-sitter-parser-create buffer language
 This function is the most primitive, requiring both the buffer to
 associate to, and the language to use.
 @end defun
@@ -739,7 +739,7 @@ name @code{biexp}:
 
 Now we can introduce the query functions.
 
-@defun tree-sitter-query-capture node query beg end
+@defun tree-sitter-query-capture node query &optional beg end
 This function matches patterns in @var{query} in @var{node}.
 Argument @var{query} can be a either string or a s-expression.  For
 now, we focus on the string syntax; s-expression syntax is described
@@ -804,7 +804,7 @@ patterns. For example, it could have two top-level patterns:
 @end group
 @end example
 
-@defun tree-sitter-query-string query string language
+@defun tree-sitter-query-string string query language
 This function parses @var{string} with @var{language}, pattern matches
 its root node with @var{query}, and returns the result.
 @end defun
