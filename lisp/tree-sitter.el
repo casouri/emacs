@@ -132,9 +132,9 @@ If PARSER-OR-LANG is nil, use the first parser in
 `tree-sitter-parser-list'; if PARSER-OR-LANG is a parser, use
 that parser; if PARSER-OR-LANG is a language, find a parser using
 that language in the current buffer, and use that."
-  (when-let ((root (if (tree-sitter-parser-p parser-or-lang)
-                       (tree-sitter-parser-root-node parser-or-lang)
-                     (tree-sitter-buffer-root-node parser-or-lang))))
+  (let ((root (if (tree-sitter-parser-p parser-or-lang)
+                  (tree-sitter-parser-root-node parser-or-lang)
+                (tree-sitter-buffer-root-node parser-or-lang))))
     (tree-sitter-node-descendant-for-range root beg (or end beg) named)))
 
 (defun tree-sitter-buffer-root-node (&optional language)
@@ -392,11 +392,20 @@ If LOUDLY is non-nil, message some debugging information."
 	          (font-lock-value-in-major-mode
                    font-lock-maximum-decoration)))))
   (setq-local font-lock-fontify-region-function
-              #'tree-sitter-font-lock-fontify-region))
+              #'tree-sitter-font-lock-fontify-region)
+  ;; If we don't set `font-lock-defaults' to some non-nil value,
+  ;; font-lock doesn't enable properly (the font-lock-mode-internal
+  ;; doesn't run).  See `font-lock-add-keywords'.
+  (when (and font-lock-mode
+             (null font-lock-keywords)
+             (null font-lock-defaults))
+    (font-lock-mode -1)
+    (setq-local font-lock-defaults '(nil t))
+    (font-lock-mode 1)))
 
 ;;; Indent
 
-(defvar tree-sitter--indent-verbose t
+(defvar tree-sitter--indent-verbose nil
   "If non-nil, log progress when indenting.")
 
 ;; This is not bound locally like we normally do with major-mode
@@ -596,39 +605,45 @@ of the current line.")
 (defun tree-sitter-indent ()
   "Indent according to the result of `tree-sitter-indent-function'."
   (tree-sitter-update-ranges)
-  (pcase-let*
-      ((orig-pos (point))
-       (bol (save-excursion
-              (forward-line 0)
-              (skip-chars-forward " \t")
-              (point)))
-       (node (tree-sitter-parent-while
-              (cl-loop for parser in tree-sitter-parser-list
-                       for node = (tree-sitter-node-at
-                                   bol nil parser)
-                       if node return node)
-              (lambda (node)
-                (eq bol (tree-sitter-node-start node)))))
-       (parser (tree-sitter-node-parser node))
-       ;; NODE would be nil if BOL is on a whitespace.  In that case
-       ;; we set PARENT to the "node at point", which would encompass
-       ;; the whitespace.
-       (parent (if (null node)
-                   (tree-sitter-node-at bol nil parser)
-                 (tree-sitter-node-parent node)))
-       (`(,anchor . ,offset)
-        (funcall tree-sitter-indent-function node parent bol)))
-    (if (null anchor)
-        (when tree-sitter--indent-verbose
-          (message "Failed to find the anchor"))
-      (let ((col (+ (save-excursion
-                      (goto-char anchor)
-                      (current-column))
-                    offset)))
-        (if (< bol orig-pos)
-            (save-excursion
-              (indent-line-to col))
-          (indent-line-to col))))))
+  (let* ((orig-pos (point))
+         (bol (save-excursion
+                (forward-line 0)
+                (skip-chars-forward " \t")
+                (point)))
+         (smallest-node
+          (cl-loop for parser in tree-sitter-parser-list
+                   for node = (tree-sitter-node-at
+                               bol nil parser)
+                   if node return node))
+         (node (tree-sitter-parent-while
+                 smallest-node
+                 (lambda (node)
+                   (eq bol (tree-sitter-node-start node))))))
+    (pcase-let*
+        ((parser (if smallest-node
+                     (tree-sitter-node-parser smallest-node)
+                   nil))
+         ;; NODE would be nil if BOL is on a whitespace.  In that case
+         ;; we set PARENT to the "node at point", which would
+         ;; encompass the whitespace.
+         (parent (cond ((and node parser)
+                        (tree-sitter-node-parent node))
+                       (parser
+                        (tree-sitter-node-at bol nil parser))
+                       (t nil)))
+         (`(,anchor . ,offset)
+          (funcall tree-sitter-indent-function node parent bol)))
+      (if (null anchor)
+          (when tree-sitter--indent-verbose
+            (message "Failed to find the anchor"))
+        (let ((col (+ (save-excursion
+                        (goto-char anchor)
+                        (current-column))
+                      offset)))
+          (if (< bol orig-pos)
+              (save-excursion
+                (indent-line-to col))
+            (indent-line-to col)))))))
 
 (defun tree-sitter-simple-indent (node parent bol)
   "Calculate indentation according to `tree-sitter-simple-indent-rules'.
@@ -640,19 +655,24 @@ PARENT is NODE's parent.
 Return (ANCHOR . OFFSET) where ANCHOR is a node, OFFSET is the
 indentation offset, meaning indent to align with ANCHOR and add
 OFFSET."
-  (let* ((language (tree-sitter-node-language node))
-         (rules (alist-get language tree-sitter-simple-indent-rules)))
-    (cl-loop for rule in rules
-             for pred = (nth 0 rule)
-             for anchor = (nth 1 rule)
-             for offset = (nth 2 rule)
-             if (tree-sitter--simple-apply pred (list node parent bol))
-             do (when tree-sitter--indent-verbose
-                  (message "Matched rule: %S" rule))
-             and
-             return (cons (tree-sitter--simple-apply
-                           anchor (list node parent bol))
-                          offset))))
+  (if (null parent)
+      (when tree-sitter--indent-verbose
+        (message "PARENT is nil, not indenting"))
+    (let* ((language (tree-sitter-node-language parent))
+           (rules (alist-get language
+                             tree-sitter-simple-indent-rules)))
+      (cl-loop for rule in rules
+               for pred = (nth 0 rule)
+               for anchor = (nth 1 rule)
+               for offset = (nth 2 rule)
+               if (tree-sitter--simple-apply
+                   pred (list node parent bol))
+               do (when tree-sitter--indent-verbose
+                    (message "Matched rule: %S" rule))
+               and
+               return (cons (tree-sitter--simple-apply
+                             anchor (list node parent bol))
+                            offset)))))
 
 (defun tree-sitter-check-indent (mode)
   "Check current buffer's indentation against a major mode MODE.
@@ -701,7 +721,7 @@ and the lib name in string-face."
                     '((ts-c-tree-sitter-settings-1))
 
                     font-lock-defaults
-                    (ignore t nil nil nil)
+                    '(nil t)
 
                     indent-line-function
                     #'tree-sitter-indent
