@@ -363,7 +363,8 @@ always creates a new parser.
 
 @defun tree-sitter-parser-create buffer language
 This function is the most primitive, requiring both the buffer to
-associate to, and the language to use.
+associate to, and the language to use.  If @var{buffer} is nil, the
+current buffer is used.
 @end defun
 
 Given a parser, we can query information about it:

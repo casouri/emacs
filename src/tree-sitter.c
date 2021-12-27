@@ -499,6 +499,9 @@ function provided by a tree-sitter language dynamic module, e.g.,
 'tree-sitter-json.  If BUFFER is nil, use the current buffer.  */)
   (Lisp_Object buffer, Lisp_Object language)
 {
+  if (NILP (buffer))
+    buffer = Fcurrent_buffer ();
+
   CHECK_BUFFER(buffer);
   CHECK_SYMBOL (language);
   ts_check_buffer_size (XBUFFER (buffer));
