@@ -68,6 +68,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    A complete correspondence list between tree-sitter functions and
    exposed Lisp functions can be found in the manual (elisp)API
    Correspondence.
+
+   Placement of CHECK_xxx functions: call CHECK_xxx before using any
+   unchecked Lisp values; these include argument of Lisp functions,
+   return value of Fsymbol_value, car of a cons.
  */
 
 /*** Loading language library */
@@ -116,7 +120,6 @@ ts_find_override_name
 TSLanguage*
 ts_load_language (Lisp_Object language_symbol, bool signal)
 {
-  CHECK_SYMBOL (language_symbol);
   Lisp_Object symbol_name = Fsymbol_name (language_symbol);
 
   /* Figure out the library name and C name.  */
@@ -202,6 +205,7 @@ DEFUN ("tree-sitter-language-available-p",
        doc: /* Return non-nil if LANGUAGE exists and is loadable.  */)
   (Lisp_Object language)
 {
+  CHECK_SYMBOL (language);
   if (ts_load_language(language, false) == NULL)
     return Qnil;
   else
@@ -230,12 +234,13 @@ void
 ts_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 		  ptrdiff_t new_end_byte)
 {
-  for (Lisp_Object parser_list = Fsymbol_value
-	 (Qtree_sitter_parser_list);
-       !NILP (parser_list);
+  Lisp_Object parser_list = Fsymbol_value (Qtree_sitter_parser_list);
+  CHECK_CONS (parser_list);
+  for (;!NILP (parser_list);
        parser_list = XCDR (parser_list))
     {
       Lisp_Object lisp_parser = XCAR (parser_list);
+      CHECK_TS_PARSER (lisp_parser);
       TSTree *tree = XTS_PARSER (lisp_parser)->tree;
       if (tree != NULL)
 	{
@@ -491,15 +496,13 @@ DEFUN ("tree-sitter-parser-create",
 The parser is automatically added to BUFFER's
 `tree-sitter-parser-list'.  LANGUAGE should be the symbol of a
 function provided by a tree-sitter language dynamic module, e.g.,
-'tree-sitter-json.  */)
+'tree-sitter-json.  If BUFFER is nil, use the current buffer.  */)
   (Lisp_Object buffer, Lisp_Object language)
 {
   CHECK_BUFFER(buffer);
   CHECK_SYMBOL (language);
   ts_check_buffer_size (XBUFFER (buffer));
 
-  /* LANGUAGE is a function that returns a USER_PTR that contains the
-     pointer to a TSLanguage struct.  */
   TSParser *parser = ts_parser_new ();
   TSLanguage *lang = ts_load_language (language, true);
   /* We check language version when loading a language, so this should
@@ -565,7 +568,9 @@ ts_check_range_argument (Lisp_Object ranges)
   for (Lisp_Object tail = ranges;
        !NILP (tail); tail = XCDR (tail))
     {
+      CHECK_CONS (tail);
       Lisp_Object range = XCAR (tail);
+      CHECK_CONS (range);
       CHECK_FIXNUM (XCAR (range));
       CHECK_FIXNUM (XCDR (range));
       EMACS_INT beg = XFIXNUM (XCAR (range));
