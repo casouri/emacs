@@ -6158,6 +6158,9 @@ garbage_collect (void)
   mark_terminals ();
   mark_kboards ();
   mark_threads ();
+#ifdef HAVE_PGTK
+  mark_pgtkterm ();
+#endif
 
 #ifdef USE_GTK
   xg_mark_data ();
@@ -7734,6 +7737,12 @@ enum defined_HAVE_X_WINDOWS { defined_HAVE_X_WINDOWS = true };
 enum defined_HAVE_X_WINDOWS { defined_HAVE_X_WINDOWS = false };
 #endif
 
+#ifdef HAVE_PGTK
+enum defined_HAVE_PGTK { defined_HAVE_PGTK = true };
+#else
+enum defined_HAVE_PGTK { defined_HAVE_PGTK = false };
+#endif
+
 /* When compiled with GCC, GDB might say "No enum type named
    pvec_type" if we don't have at least one symbol with that type, and
    then xbacktrace could fail.  Similarly for the other enums and
@@ -7753,5 +7762,6 @@ union
   enum More_Lisp_Bits More_Lisp_Bits;
   enum pvec_type pvec_type;
   enum defined_HAVE_X_WINDOWS defined_HAVE_X_WINDOWS;
+  enum defined_HAVE_PGTK defined_HAVE_PGTK;
 } const EXTERNALLY_VISIBLE gdb_make_enums_visible = {0};
 #endif	/* __GNUC__ */

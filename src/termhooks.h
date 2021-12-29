@@ -61,6 +61,7 @@ enum output_method
   output_msdos_raw,
   output_w32,
   output_ns,
+  output_pgtk,
   output_haiku
 };
 
@@ -268,12 +269,45 @@ enum event_kind
   , FILE_NOTIFY_EVENT
 #endif
 
+#ifdef HAVE_PGTK
+  /* Pre-edit text was changed. */
+  , PGTK_PREEDIT_TEXT_EVENT
+#endif
+
   /* Either the mouse wheel has been released without it being
      clicked, or the user has lifted his finger from a touchpad.
 
      In the future, this may take into account other multi-touch
      events generated from touchscreens and such.  */
   , TOUCH_END_EVENT
+
+  /* In a TOUCHSCREEN_UPDATE_EVENT, ARG is a list of elements of the
+     form (X Y ID), where X and Y are the coordinates of the
+     touchpoint relative to the top-left corner of the frame, and ID
+     is a unique number identifying the touchpoint.
+
+     In TOUCHSCREEN_BEGIN_EVENT and TOUCHSCREEN_END_EVENT, ARG is the
+     unique ID of the touchpoint, and X and Y are the frame-relative
+     positions of the touchpoint.  */
+
+  , TOUCHSCREEN_UPDATE_EVENT
+  , TOUCHSCREEN_BEGIN_EVENT
+  , TOUCHSCREEN_END_EVENT
+
+  /* In a PINCH_EVENT, X and Y are the position of the pointer
+     relative to the top-left corner of the frame, and arg is a list
+     of (DX DY SCALE ANGLE), in which:
+
+       - DX and DY are the difference between the positions of the
+         fingers comprising the current gesture and the last such
+         gesture in the same sequence.
+       - SCALE is the division of the current distance between the
+         fingers and the distance at the start of the gesture.
+       - DELTA-ANGLE is the delta between the angle of the current
+         event and the last event in the same sequence, in degrees.  A
+         positive delta represents a change clockwise, and a negative
+         delta represents a change counter-clockwise.  */
+  , PINCH_EVENT
 };
 
 /* Bit width of an enum event_kind tag at the start of structs and unions.  */
@@ -454,6 +488,7 @@ struct terminal
     struct x_display_info *x;         /* xterm.h */
     struct w32_display_info *w32;     /* w32term.h */
     struct ns_display_info *ns;       /* nsterm.h */
+    struct pgtk_display_info *pgtk; /* pgtkterm.h */
     struct haiku_display_info *haiku; /* haikuterm.h */
   } display_info;
 
@@ -528,7 +563,7 @@ struct terminal
      BGCOLOR.  */
   void (*query_frame_background_color) (struct frame *f, Emacs_Color *bgcolor);
 
-#if defined (HAVE_X_WINDOWS) || defined (HAVE_NTGUI)
+#if defined (HAVE_X_WINDOWS) || defined (HAVE_NTGUI) || defined (HAVE_PGTK)
   /* On frame F, translate pixel colors to RGB values for the NCOLORS
      colors in COLORS.  Use cached information, if available.  */
 
@@ -843,6 +878,9 @@ extern struct terminal *terminal_list;
 #elif defined (HAVE_NS)
 #define TERMINAL_FONT_CACHE(t)						\
   (t->type == output_ns ? t->display_info.ns->name_list_element : Qnil)
+#elif defined (HAVE_PGTK)
+#define TERMINAL_FONT_CACHE(t)						\
+  (t->type == output_pgtk ? t->display_info.pgtk->name_list_element : Qnil)
 #elif defined (HAVE_HAIKU)
 #define TERMINAL_FONT_CACHE(t)						\
   (t->type == output_haiku ? t->display_info.haiku->name_list_element : Qnil)

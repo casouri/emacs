@@ -368,7 +368,7 @@ Return value as a string."
 	    date)
 	(unwind-protect
 	    (progn
-	      (vc-call print-log file buf nil nil 1)
+	      (vc-call print-log (list file) buf nil nil 1)
 	      (with-current-buffer buf
 		(vc-exec-after
 		 (lambda ()
@@ -378,7 +378,7 @@ Return value as a string."
 				  (buffer-substring
 				   (point) (line-end-position)))))
 		       (when (cl-some #'identity time)
-			 (setq date (apply #'encode-time time))))))))
+			 (setq date (encode-time time))))))))
 	      (let ((proc (get-buffer-process buf)))
 		(while (and proc (accept-process-output proc .5 nil t)))))
 	  (kill-buffer buf))

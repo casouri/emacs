@@ -578,7 +578,7 @@ REL-DATE, or (current-time) if REL-DATE is nil."
 	(seq-subseq
 	 (decode-time
 	  (time-subtract
-	   (apply #'encode-time now)
+	   (encode-time now)
 	   (days-to-time
 	    (* (string-to-number (match-string 1 value))
 	       (cdr (assoc (match-string 2 value)
@@ -597,7 +597,7 @@ REL-DATE, or (current-time) if REL-DATE is nil."
 	     ;; If DOW is given, handle that specially.
 	     (if (and (seq-elt d-time 6) (null (seq-elt d-time 3)))
 		 (decode-time
-		  (time-subtract (apply #'encode-time now)
+		  (time-subtract (encode-time now)
 				 (days-to-time
 				  (+ (if (> (seq-elt d-time 6)
 					    (seq-elt now 6))
@@ -1060,7 +1060,7 @@ Responsible for handling and, or, and parenthetical expressions.")
 	       q-string)))
 
       (while (and (setq group (pop grouplist))
-		  (or (null single-search) (null artlist)))
+		  (or (null single-search) (= 0 (length artlist))))
 	(when (nnimap-change-group
 	       (gnus-group-short-name group) server)
 	  (with-current-buffer (nnimap-buffer)
@@ -1257,9 +1257,7 @@ elements are present."
 	  (setq dmonth 1))))
     (format-time-string
      "%e-%b-%Y"
-     (apply #'encode-time
-	    (append '(0 0 0)
-		    (list dday dmonth dyear))))))
+     (encode-time 0 0 0 dday dmonth dyear))))
 
 (cl-defmethod gnus-search-imap-handle-string ((engine gnus-search-imap)
 					      (str string))

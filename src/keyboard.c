@@ -65,6 +65,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <math.h>
 
 #include <ignore-value.h>
 
@@ -3972,6 +3973,9 @@ kbd_buffer_get_event (KBOARD **kbp,
 	  *used_mouse_menu = true;
 	FALLTHROUGH;
 #endif
+#ifdef HAVE_PGTK
+      case PGTK_PREEDIT_TEXT_EVENT:
+#endif
 #ifdef HAVE_NTGUI
       case END_SESSION_EVENT:
       case LANGUAGE_CHANGE_EVENT:
@@ -4034,6 +4038,61 @@ kbd_buffer_get_event (KBOARD **kbp,
 	     and build a real event from the queue entry.  */
 	  if (NILP (obj))
 	    {
+	      double pinch_dx, pinch_dy, pinch_angle;
+
+	      /* Pinch events are often sent in rapid succession, so
+		 large amounts of such events have the potential to
+		 queue up inside the keyboard buffer.  In that case,
+		 find the last pinch event in succession on the same
+		 frame with the same modifiers, and send that instead.  */
+
+	      if (event->ie.kind == PINCH_EVENT
+		  /* Ignore if this is the start of a pinch sequence.
+		     These events should always be sent so that we
+		     never miss a sequence starting, and they don't
+		     have the potential to queue up.  */
+		  && ((pinch_dx
+		       = XFLOAT_DATA (XCAR (event->ie.arg))) != 0.0
+		      || XFLOAT_DATA (XCAR (XCDR (event->ie.arg))) != 0.0
+		      || XFLOAT_DATA (Fnth (make_fixnum (3), event->ie.arg)) != 0.0))
+		{
+		  union buffered_input_event *maybe_event = next_kbd_event (event);
+
+		  pinch_dy = XFLOAT_DATA (XCAR (XCDR (event->ie.arg)));
+		  pinch_angle = XFLOAT_DATA (Fnth (make_fixnum (3), event->ie.arg));
+
+		  while (maybe_event != kbd_store_ptr
+			 && maybe_event->ie.kind == PINCH_EVENT
+			 /* Make sure we never miss an event that has
+			    different modifiers.  */
+			 && maybe_event->ie.modifiers == event->ie.modifiers
+			 /* Make sure that the event is for the same
+			    frame.  */
+			 && EQ (maybe_event->ie.frame_or_window,
+				event->ie.frame_or_window)
+			 /* Make sure that the event isn't the start
+			    of a new pinch gesture sequence.  */
+			 && (XFLOAT_DATA (XCAR (maybe_event->ie.arg)) != 0.0
+			     || XFLOAT_DATA (XCAR (XCDR (maybe_event->ie.arg))) != 0.0
+			     || XFLOAT_DATA (Fnth (make_fixnum (3),
+						   maybe_event->ie.arg)) != 0.0))
+		    {
+		      event = maybe_event;
+		      /* Add up relative deltas inside events we skip.  */
+		      pinch_dx += XFLOAT_DATA (XCAR (maybe_event->ie.arg));
+		      pinch_dy += XFLOAT_DATA (XCAR (XCDR (maybe_event->ie.arg)));
+		      pinch_angle += XFLOAT_DATA (Fnth (make_fixnum (3),
+							maybe_event->ie.arg));
+
+		      XSETCAR (maybe_event->ie.arg, make_float (pinch_dx));
+		      XSETCAR (XCDR (maybe_event->ie.arg), make_float (pinch_dy));
+		      XSETCAR (Fnthcdr (make_fixnum (3),
+					maybe_event->ie.arg),
+			       make_float (fmod (pinch_angle, 360.0)));
+		      maybe_event = next_kbd_event (event);
+		    }
+		}
+
 	      obj = make_lispy_event (&event->ie);
 
 #ifdef HAVE_EXT_MENU_BAR
@@ -4463,6 +4522,7 @@ static Lisp_Object func_key_syms;
 static Lisp_Object mouse_syms;
 static Lisp_Object wheel_syms;
 static Lisp_Object drag_n_drop_syms;
+static Lisp_Object pinch_syms;
 
 /* This is a list of keysym codes for special "accent" characters.
    It parallels lispy_accent_keys.  */
@@ -6010,6 +6070,62 @@ make_lispy_event (struct input_event *event)
 	return list2 (Qtouch_end, position);
       }
 
+    case TOUCHSCREEN_BEGIN_EVENT:
+    case TOUCHSCREEN_END_EVENT:
+      {
+	Lisp_Object x, y, id, position;
+	struct frame *f = XFRAME (event->frame_or_window);
+
+	id = event->arg;
+	x = event->x;
+	y = event->y;
+
+	position = make_lispy_position (f, x, y, event->timestamp);
+
+	return list2 (((event->kind
+			== TOUCHSCREEN_BEGIN_EVENT)
+		       ? Qtouchscreen_begin
+		       : Qtouchscreen_end),
+		      Fcons (id, position));
+      }
+
+    case PINCH_EVENT:
+      {
+	Lisp_Object x, y, position;
+	struct frame *f = XFRAME (event->frame_or_window);
+
+	x = event->x;
+	y = event->y;
+
+	position = make_lispy_position (f, x, y, event->timestamp);
+
+	return Fcons (modify_event_symbol (0, event->modifiers, Qpinch,
+					   Qnil, (const char *[]) {"pinch"},
+					   &pinch_syms, 1),
+		      Fcons (position, event->arg));
+      }
+
+    case TOUCHSCREEN_UPDATE_EVENT:
+      {
+	Lisp_Object x, y, id, position, tem, it, evt;
+	struct frame *f = XFRAME (event->frame_or_window);
+	evt = Qnil;
+
+	for (tem = event->arg; CONSP (tem); tem = XCDR (tem))
+	  {
+	    it = XCAR (tem);
+
+	    x = XCAR (it);
+	    y = XCAR (XCDR (it));
+	    id = XCAR (XCDR (XCDR (it)));
+
+	    position = make_lispy_position (f, x, y, event->timestamp);
+	    evt = Fcons (Fcons (id, position), evt);
+	  }
+
+	return list2 (Qtouchscreen_update, evt);
+      }
+
 #ifdef USE_TOOLKIT_SCROLL_BARS
 
       /* We don't have down and up events if using toolkit scroll bars,
@@ -6172,6 +6288,12 @@ make_lispy_event (struct input_event *event)
     case CONFIG_CHANGED_EVENT:
 	return list3 (Qconfig_changed_event,
 		      event->arg, event->frame_or_window);
+
+#ifdef HAVE_PGTK
+    case PGTK_PREEDIT_TEXT_EVENT:
+      return list2 (intern ("pgtk-preedit-text"), event->arg);
+#endif
+
       /* The 'kind' field of the event is something we don't recognize.  */
     default:
       emacs_abort ();
@@ -11921,6 +12043,9 @@ syms_of_keyboard (void)
   drag_n_drop_syms = Qnil;
   staticpro (&drag_n_drop_syms);
 
+  pinch_syms = Qnil;
+  staticpro (&pinch_syms);
+
   unread_switch_frame = Qnil;
   staticpro (&unread_switch_frame);
 
@@ -12257,6 +12382,10 @@ See also `pre-command-hook'.  */);
 	       doc: /* Normal hook run when clearing the echo area.  */);
 #endif
   DEFSYM (Qecho_area_clear_hook, "echo-area-clear-hook");
+  DEFSYM (Qtouchscreen_begin, "touchscreen-begin");
+  DEFSYM (Qtouchscreen_end, "touchscreen-end");
+  DEFSYM (Qtouchscreen_update, "touchscreen-update");
+  DEFSYM (Qpinch, "pinch");
   Fset (Qecho_area_clear_hook, Qnil);
 
   DEFVAR_LISP ("lucid-menu-bar-dirty-flag", Vlucid_menu_bar_dirty_flag,
@@ -12642,6 +12771,8 @@ keys_of_keyboard (void)
 			    "ns-put-working-text");
   initial_define_lispy_key (Vspecial_event_map, "ns-unput-working-text",
 			    "ns-unput-working-text");
+  initial_define_lispy_key (Vspecial_event_map, "pgtk-preedit-text",
+			    "pgtk-preedit-text");
   /* Here we used to use `ignore-event' which would simple set prefix-arg to
      current-prefix-arg, as is done in `handle-switch-frame'.
      But `handle-switch-frame is not run from the special-map.

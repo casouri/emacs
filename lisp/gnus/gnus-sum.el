@@ -1182,8 +1182,8 @@ mark:         The article's mark.
 uncached:     Non-nil if the article is uncached."
   :group 'gnus-summary-visual
   :type '(repeat (cons (sexp :tag "Form" nil)
-		       face)))
-(put 'gnus-summary-highlight 'risky-local-variable t)
+                       face))
+  :risky t)
 
 (defcustom gnus-alter-header-function nil
   "Function called to allow alteration of article header structures.
@@ -5001,23 +5001,13 @@ If LINE, insert the rebuilt thread starting on line LINE."
 			      gnus-article-sort-functions)))
       (gnus-message 7 "Sorting articles...done"))))
 
-;; Written by Hallvard B Furuseth <h.b.furuseth@usit.uio.no>.
-(defmacro gnus-thread-header (thread)
-  "Return header of first article in THREAD.
-Note that THREAD must never, ever be anything else than a variable -
-using some other form will lead to serious barfage."
-  (or (symbolp thread) (signal 'wrong-type-argument '(symbolp thread)))
-  ;; (8% speedup to gnus-summary-prepare, just for fun :-)
-  (cond
-   ((and (boundp 'lexical-binding) lexical-binding)
-    ;; FIXME: This version could be a "defsubst" rather than a macro.
-    `(#[257 "\211:\203\16\0\211@;\203\15\0A@@\207"
-            [] 2]
-      ,thread))
-   (t
-    ;; Not sure how XEmacs handles these things, so let's keep the old code.
-    (list 'byte-code "\10\211:\203\17\0\211@;\203\16\0A@@\207"
-          (vector thread) 2))))
+(defsubst gnus-thread-header (thread)
+  "Return header of first article in THREAD."
+  (if (consp thread)
+      (car (if (stringp (car thread))
+               (cadr thread)
+             thread))
+    thread))
 
 (defsubst gnus-article-sort-by-number (h1 h2)
   "Sort articles by article number."
@@ -8668,20 +8658,20 @@ these articles."
 	(gnus-fetch-old-headers nil)
 	(gnus-build-sparse-threads nil))
     (prog1
-	(gnus-summary-limit (if thread-only articles
-			      (nconc articles gnus-newsgroup-limit)))
-      (gnus-summary-limit-include-matching-articles
-       "subject"
-       (regexp-quote (gnus-general-simplify-subject
-		      (mail-header-subject (gnus-id-to-header id)))))
-      ;; the previous two calls each push a limit onto the limit
-      ;; stack. the first pop remove the articles that match the
-      ;; subject, while the second pop gets us back to the state
-      ;; before we started to deal with the thread. presumably we want
-      ;; to think of the thread and its associated subject matches as
-      ;; a single thing so that we need to pop only once to get back
-      ;; to the original view.
-      (pop gnus-newsgroup-limits)
+        (gnus-summary-limit (if thread-only articles
+                              (nconc articles gnus-newsgroup-limit)))
+      (let ((matching-subject (gnus-general-simplify-subject
+		               (mail-header-subject (gnus-id-to-header id)))))
+        (when matching-subject
+          (gnus-summary-limit-include-matching-articles
+           "subject"
+           matching-subject)
+          ;; Each of the previous two limit calls push a limit onto
+          ;; the limit stack. Presumably we want to think of the
+          ;; thread and its associated subject matches as a single
+          ;; thing so we probably want a single pop to restore the
+          ;; original view. Hence we pop this last limit off.
+          (pop gnus-newsgroup-limits)))
       (gnus-summary-position-point))))
 
 (defun gnus-summary-limit-include-matching-articles (header regexp)

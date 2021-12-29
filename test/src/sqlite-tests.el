@@ -26,6 +26,17 @@
 (require 'ert)
 (require 'ert-x)
 
+(declare-function sqlite-execute "sqlite.c")
+(declare-function sqlite-close "sqlite.c")
+(declare-function sqlitep "sqlite.c")
+(declare-function sqlite-available-p "sqlite.c")
+(declare-function sqlite-finalize "sqlite.c")
+(declare-function sqlite-next "sqlite.c")
+(declare-function sqlite-more-p "sqlite.c")
+(declare-function sqlite-select "sqlite.c")
+(declare-function sqlite-open "sqlite.c")
+(declare-function sqlite-load-extension "sqlite.c")
+
 (ert-deftest sqlite-select ()
   (skip-unless (sqlite-available-p))
   (let ((db (sqlite-open)))
@@ -171,5 +182,38 @@
     (should (sqlite-select db "select * from test6"))
     (sqlite-close db)
     (should-error (sqlite-select db "select * from test6"))))
+
+(ert-deftest sqlite-load-extension ()
+  (skip-unless (sqlite-available-p))
+  (skip-unless (fboundp 'sqlite-load-extension))
+  (let (db)
+    (setq db (sqlite-open))
+    (should-error
+     (sqlite-load-extension db "/usr/lib/sqlite3/notpcre.so"))
+    (should-error
+     (sqlite-load-extension db "/usr/lib/sqlite3/n"))
+    (should-error
+     (sqlite-load-extension db "/usr/lib/sqlite3/"))
+    (should-error
+     (sqlite-load-extension db "/usr/lib/sqlite3"))
+    (should
+     (memq
+      (sqlite-load-extension db "/usr/lib/sqlite3/pcre.so")
+      '(nil t)))
+
+    (should-error
+     (sqlite-load-extension
+      db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_notcsvtable.so"))
+    (should-error
+     (sqlite-load-extension
+      db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtablen.so"))
+    (should-error
+     (sqlite-load-extension
+      db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable"))
+    (should
+     (memq
+      (sqlite-load-extension
+       db "/usr/lib/x86_64-linux-gnu/libsqlite3_mod_csvtable.so")
+      '(nil t)))))
 
 ;;; sqlite-tests.el ends here

@@ -2768,7 +2768,6 @@ font_delete_unmatched (Lisp_Object vec, Lisp_Object spec, int size)
 	      int candidate = XFIXNUM (AREF (entity, prop)) >> 8;
 
 	      if (candidate != required
-#ifdef HAVE_NTGUI
 		  /* A kludge for w32 font search, where listing a
 		     family returns only 4 standard weights: regular,
 		     italic, bold, bold-italic.  For other values one
@@ -2778,10 +2777,14 @@ font_delete_unmatched (Lisp_Object vec, Lisp_Object spec, int size)
 		     weight, so if we require exact match, the
 		     non-regular font will be rejected.  So we relax
 		     the accuracy of the match here, and let
-		     font_sort_entities find the best match.  */
+		     font_sort_entities find the best match.
+
+		     Similar things happen on Posix platforms, when
+		     people use font families that don't have the
+		     regular weight, only the medium weight: these
+		     families get rejected if we require an exact match.  */
 		  && (prop != FONT_WEIGHT_INDEX
 		      || eabs (candidate - required) > 100)
-#endif
 		  )
 		prop = FONT_SPEC_MAX;
 	    }
@@ -5741,7 +5744,11 @@ match.  */);
   syms_of_xftfont ();
 #endif  /* HAVE_XFT */
 #endif  /* not USE_CAIRO */
-#endif	/* HAVE_X_WINDOWS */
+#else	/* not HAVE_X_WINDOWS */
+#ifdef USE_CAIRO
+  syms_of_ftcrfont ();
+#endif
+#endif	/* not HAVE_X_WINDOWS */
 #else	/* not HAVE_FREETYPE */
 #ifdef HAVE_X_WINDOWS
   syms_of_xfont ();

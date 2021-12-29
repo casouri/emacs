@@ -46,6 +46,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <X11/extensions/XInput2.h>
 #endif
 
+#ifdef HAVE_XRANDR
+#include <X11/extensions/Xrandr.h>
+#endif
+
 /* Load sys/types.h if not already loaded.
    In some systems loading it twice is suicidal.  */
 #ifndef makedev
@@ -353,6 +357,8 @@ x_extension_initialize (struct x_display_info *dpyinfo)
 static void
 x_free_xi_devices (struct x_display_info *dpyinfo)
 {
+  struct xi_touch_point_t *tem, *last;
+
   block_input ();
 
   if (dpyinfo->num_devices)
@@ -362,6 +368,14 @@ x_free_xi_devices (struct x_display_info *dpyinfo)
 	  XIUngrabDevice (dpyinfo->display, dpyinfo->devices[i].device_id,
 			  CurrentTime);
 	  xfree (dpyinfo->devices[i].valuators);
+
+	  tem = dpyinfo->devices[i].touchpoints;
+	  while (tem)
+	    {
+	      last = tem;
+	      tem = tem->next;
+	      xfree (last);
+	    }
 	}
 
       xfree (dpyinfo->devices);
@@ -407,7 +421,7 @@ x_init_master_valuators (struct x_display_info *dpyinfo)
   block_input ();
   x_free_xi_devices (dpyinfo);
   infos = XIQueryDevice (dpyinfo->display,
-			 XIAllMasterDevices,
+			 XIAllDevices,
 			 &ndevices);
 
   if (!ndevices)
@@ -432,6 +446,10 @@ x_init_master_valuators (struct x_display_info *dpyinfo)
 	  xi_device->grab = 0;
 	  xi_device->valuators =
 	    xmalloc (sizeof *xi_device->valuators * device->num_classes);
+	  xi_device->touchpoints = NULL;
+	  xi_device->master_p = (device->use == XIMasterKeyboard
+				 || device->use == XIMasterPointer);
+	  xi_device->direct_p = false;
 
 	  for (int c = 0; c < device->num_classes; ++c)
 	    {
@@ -442,22 +460,36 @@ x_init_master_valuators (struct x_display_info *dpyinfo)
 		  {
 		    XIScrollClassInfo *info =
 		      (XIScrollClassInfo *) device->classes[c];
-		    struct xi_scroll_valuator_t *valuator =
-		      &xi_device->valuators[actual_valuator_count++];
+		    struct xi_scroll_valuator_t *valuator;
 
-		    valuator->horizontal
-		      = (info->scroll_type == XIScrollTypeHorizontal);
-		    valuator->invalid_p = true;
-		    valuator->emacs_value = DBL_MIN;
-		    valuator->increment = info->increment;
-		    valuator->number = info->number;
+		    if (xi_device->master_p)
+		      {
+			valuator = &xi_device->valuators[actual_valuator_count++];
+			valuator->horizontal
+			  = (info->scroll_type == XIScrollTypeHorizontal);
+			valuator->invalid_p = true;
+			valuator->emacs_value = DBL_MIN;
+			valuator->increment = info->increment;
+			valuator->number = info->number;
+		      }
+
 		    break;
+		  }
+#endif
+#ifdef XITouchClass /* XInput 2.2 */
+		case XITouchClass:
+		  {
+		    XITouchClassInfo *info;
+
+		    info = (XITouchClassInfo *) device->classes[c];
+		    xi_device->direct_p = info->mode == XIDirectTouch;
 		  }
 #endif
 		default:
 		  break;
 		}
 	    }
+
 	  xi_device->scroll_valuator_count = actual_valuator_count;
 	}
     }
@@ -484,7 +516,7 @@ x_get_scroll_valuator_delta (struct x_display_info *dpyinfo, int device_id,
     {
       struct xi_device_t *device = &dpyinfo->devices[i];
 
-      if (device->device_id == device_id)
+      if (device->device_id == device_id && device->master_p)
 	{
 	  for (int j = 0; j < device->scroll_valuator_count; ++j)
 	    {
@@ -534,35 +566,62 @@ xi_device_from_id (struct x_display_info *dpyinfo, int deviceid)
   return NULL;
 }
 
+#ifdef XI_TouchBegin
+
 static void
-xi_grab_or_ungrab_device (struct xi_device_t *device,
-			  struct x_display_info *dpyinfo,
-			  Window window)
+xi_link_touch_point (struct xi_device_t *device,
+		     int detail, double x, double y)
 {
-  XIEventMask mask;
-  ptrdiff_t l = XIMaskLen (XI_LASTEVENT);
-  unsigned char *m;
-  mask.mask = m = alloca (l);
-  memset (m, 0, l);
-  mask.mask_len = l;
+  struct xi_touch_point_t *touchpoint;
 
-  XISetMask (m, XI_ButtonPress);
-  XISetMask (m, XI_ButtonRelease);
-  XISetMask (m, XI_Motion);
-  XISetMask (m, XI_Enter);
-  XISetMask (m, XI_Leave);
+  touchpoint = xmalloc (sizeof *touchpoint);
+  touchpoint->next = device->touchpoints;
+  touchpoint->x = x;
+  touchpoint->y = y;
+  touchpoint->number = detail;
 
-  if (device->grab)
-    {
-      XIGrabDevice (dpyinfo->display, device->device_id, window,
-		    CurrentTime, None, GrabModeAsync,
-		    GrabModeAsync, True, &mask);
-    }
-  else
-    {
-      XIUngrabDevice (dpyinfo->display, device->device_id, CurrentTime);
-    }
+  device->touchpoints = touchpoint;
 }
+
+static bool
+xi_unlink_touch_point (int detail,
+		       struct xi_device_t *device)
+{
+  struct xi_touch_point_t *last, *tem;
+
+  for (last = NULL, tem = device->touchpoints; tem;
+       last = tem, tem = tem->next)
+    {
+      if (tem->number == detail)
+	{
+	  if (!last)
+	    device->touchpoints = tem->next;
+	  else
+	    last->next = tem->next;
+
+	  xfree (tem);
+	  return true;
+	}
+    }
+
+  return false;
+}
+
+static struct xi_touch_point_t *
+xi_find_touch_point (struct xi_device_t *device, int detail)
+{
+  struct xi_touch_point_t *point;
+
+  for (point = device->touchpoints; point; point = point->next)
+    {
+      if (point->number == detail)
+	return point;
+    }
+
+  return NULL;
+}
+
+#endif /* XI_TouchBegin */
 
 static void
 xi_reset_scroll_valuators_for_device_id (struct x_display_info *dpyinfo, int id)
@@ -570,7 +629,7 @@ xi_reset_scroll_valuators_for_device_id (struct x_display_info *dpyinfo, int id)
   struct xi_device_t *device = xi_device_from_id (dpyinfo, id);
   struct xi_scroll_valuator_t *valuator;
 
-  if (!device)
+  if (!device || !device->master_p)
     return;
 
   if (!device->scroll_valuator_count)
@@ -4045,6 +4104,10 @@ x_draw_glyph_string (struct glyph_string *s)
 
   if (!s->for_overlaps)
     {
+      /* Draw relief if not yet drawn.  */
+      if (!relief_drawn_p && s->face->box != FACE_NO_BOX)
+	x_draw_glyph_string_box (s);
+
       /* Draw underline.  */
       if (s->face->underline)
         {
@@ -4199,10 +4262,6 @@ x_draw_glyph_string (struct glyph_string *s)
 	      XSetForeground (display, s->gc, xgcv.foreground);
 	    }
 	}
-
-      /* Draw relief if not yet drawn.  */
-      if (!relief_drawn_p && s->face->box != FACE_NO_BOX)
-	x_draw_glyph_string_box (s);
 
       if (s->prev)
 	{
@@ -5144,15 +5203,24 @@ x_detect_focus_change (struct x_display_info *dpyinfo, struct frame *frame,
         int focus_state
           = focus_frame ? focus_frame->output_data.x->focus_state : 0;
 
-	if (!((xi_event->evtype == XI_Enter
-	       || xi_event->evtype == XI_Leave)
-	      && (focus_state & FOCUS_EXPLICIT)))
-	  x_focus_changed ((xi_event->evtype == XI_Enter
-			    || xi_event->evtype == XI_FocusIn
+#ifdef USE_GTK
+	if (xi_event->evtype == XI_FocusIn
+	    || xi_event->evtype == XI_FocusOut)
+	  x_focus_changed ((xi_event->evtype == XI_FocusIn
 			    ? FocusIn : FocusOut),
-			   (xi_event->evtype == XI_Enter
-			    || xi_event->evtype == XI_Leave
-			    ? FOCUS_IMPLICIT : FOCUS_EXPLICIT),
+			   FOCUS_EXPLICIT,
+			   dpyinfo, frame, bufp);
+	else
+#endif
+	  if ((xi_event->evtype == XI_Enter
+	       || xi_event->evtype == XI_Leave)
+	      && (((XIEnterEvent *) xi_event)->detail
+		  != XINotifyInferior)
+	      && ((XIEnterEvent *) xi_event)->focus
+	      && !(focus_state & FOCUS_EXPLICIT))
+	  x_focus_changed ((xi_event->evtype == XI_Enter
+			    ? FocusIn : FocusOut),
+			   FOCUS_IMPLICIT,
 			   dpyinfo, frame, bufp);
 	break;
       }
@@ -9290,6 +9358,13 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       x_detect_focus_change (dpyinfo, any, event, &inev.ie);
 
       f = x_top_window_to_frame (dpyinfo, event->xcrossing.window);
+#if defined HAVE_X_TOOLKIT && defined HAVE_XINPUT2
+      /* The XI2 event mask is set on the frame widget, so this event
+	 likely originates from the shell widget, which we aren't
+	 interested in.  */
+      if (dpyinfo->supports_xi2)
+	f = NULL;
+#endif
       if (f)
         {
           if (f == hlinfo->mouse_face_mouse_frame)
@@ -9611,6 +9686,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		inev.ie.kind = SELECT_WINDOW_EVENT;
 		inev.ie.frame_or_window = xvw->w;
 	      }
+
+	    *finish = X_EVENT_DROP;
 	    goto OTHER;
 	  }
 #endif
@@ -9851,9 +9928,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	XIValuatorState *states;
 	double *values;
 	bool found_valuator = false;
-#ifdef HAVE_XWIDGETS
-	bool any_stop_p = false;
-#endif /* HAVE_XWIDGETS */
 
 	/* A fake XMotionEvent for x_note_mouse_movement. */
 	XMotionEvent ev;
@@ -9904,24 +9978,46 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	    x_display_set_last_user_time (dpyinfo, xi_event->time);
 	    x_detect_focus_change (dpyinfo, any, event, &inev.ie);
+	    {
+#ifdef HAVE_XWIDGETS
+	      struct xwidget_view *xwidget_view = xwidget_view_from_window (enter->event);
+#else
+	      bool xwidget_view = false;
+#endif
 
-	    /* One problem behind the design of XInput 2 scrolling is
-	       that valuators are not unique to each window, but only
-	       the window that has grabbed the valuator's device or
-	       the window that the device's pointer is on top of can
-	       receive motion events.  There is also no way to
-	       retrieve the value of a valuator outside of each motion
-	       event.
+	      /* One problem behind the design of XInput 2 scrolling is
+		 that valuators are not unique to each window, but only
+		 the window that has grabbed the valuator's device or
+		 the window that the device's pointer is on top of can
+		 receive motion events.  There is also no way to
+		 retrieve the value of a valuator outside of each motion
+		 event.
 
-	       As such, to prevent wildly inaccurate results when the
-	       valuators have changed outside Emacs, we reset our
-	       records of each valuator's value whenever the pointer
-	       re-enters a frame after its valuators have potentially
-	       been changed elsewhere.  */
-	    if (enter->detail != XINotifyInferior
-		&& enter->mode != XINotifyPassiveUngrab
-		&& enter->mode != XINotifyUngrab && any)
-	      xi_reset_scroll_valuators_for_device_id (dpyinfo, enter->deviceid);
+		 As such, to prevent wildly inaccurate results when the
+		 valuators have changed outside Emacs, we reset our
+		 records of each valuator's value whenever the pointer
+		 re-enters a frame after its valuators have potentially
+		 been changed elsewhere.  */
+	      if (enter->detail != XINotifyInferior
+		  && enter->mode != XINotifyPassiveUngrab
+		  /* See the comment under FocusIn in
+		     `x_detect_focus_change'.  The main relevant culprit
+		     these days seems to be XFCE.  */
+		  && enter->mode != XINotifyUngrab
+		  && (xwidget_view
+		      || (any && enter->event == FRAME_X_WINDOW (any))))
+		xi_reset_scroll_valuators_for_device_id (dpyinfo, enter->deviceid);
+
+#ifdef HAVE_XWIDGETS
+	      if (xwidget_view)
+		{
+		  *finish = X_EVENT_DROP;
+		  xwidget_motion_or_crossing (xwidget_view, event);
+
+		  goto XI_OTHER;
+		}
+#endif
+	    }
 
 	    f = any;
 
@@ -9945,10 +10041,31 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    ev.window = leave->event;
 	    any = x_any_window_to_frame (dpyinfo, leave->event);
 
+#ifdef HAVE_XWIDGETS
+	    {
+	      struct xwidget_view *xvw
+		= xwidget_view_from_window (leave->event);
+
+	      if (xvw)
+		{
+		  *finish = X_EVENT_DROP;
+		  xwidget_motion_or_crossing (xvw, event);
+
+		  goto XI_OTHER;
+		}
+	    }
+#endif
+
 	    x_display_set_last_user_time (dpyinfo, xi_event->time);
 	    x_detect_focus_change (dpyinfo, any, event, &inev.ie);
 
+#ifndef USE_X_TOOLKIT
 	    f = x_top_window_to_frame (dpyinfo, leave->event);
+#else
+	    /* On Xt builds that have XI2, the enter and leave event
+	       masks are set on the frame widget's window.  */
+	    f = x_window_to_frame (dpyinfo, leave->event);
+#endif
 	    if (f)
 	      {
 		if (f == hlinfo->mouse_face_mouse_frame)
@@ -9973,242 +10090,278 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
 	    goto XI_OTHER;
 	  case XI_Motion:
-	    states = &xev->valuators;
-	    values = states->values;
+	    {
+	      struct xi_device_t *device;
 
-	    x_display_set_last_user_time (dpyinfo, xi_event->time);
+	      states = &xev->valuators;
+	      values = states->values;
+	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 
-#ifdef HAVE_XWIDGETS
-	    struct xwidget_view *xv = xwidget_view_from_window (xev->event);
-	    double xv_total_x = 0.0;
-	    double xv_total_y = 0.0;
-#endif
-
-	    for (int i = 0; i < states->mask_len * 8; i++)
-	      {
-		if (XIMaskIsSet (states->mask, i))
-		  {
-		    struct xi_scroll_valuator_t *val;
-		    double delta, scroll_unit;
-		    int scroll_height;
-		    Lisp_Object window;
-
-
-		    /* See the comment on top of
-		       x_init_master_valuators for more details on how
-		       scroll wheel movement is reported on XInput 2.  */
-		    delta = x_get_scroll_valuator_delta (dpyinfo, xev->deviceid,
-							 i, *values, &val);
-
-		    if (delta != DBL_MAX)
-		      {
-#ifdef HAVE_XWIDGETS
-			if (xv)
-			  {
-			    if (val->horizontal)
-			      xv_total_x += delta;
-			    else
-			      xv_total_y += delta;
-
-			    found_valuator = true;
-
-			    if (delta == 0.0)
-			      any_stop_p = true;
-
-			    continue;
-			  }
-#endif
-			if (!f)
-			  {
-			    f = x_any_window_to_frame (dpyinfo, xev->event);
-
-			    if (!f)
-			      goto XI_OTHER;
-			  }
-
-			found_valuator = true;
-
-			if (signbit (delta) != signbit (val->emacs_value))
-			  val->emacs_value = 0;
-
-			val->emacs_value += delta;
-
-			if (mwheel_coalesce_scroll_events
-			    && (fabs (val->emacs_value) < 1)
-			    && (fabs (delta) > 0))
-			  continue;
-
-			bool s = signbit (val->emacs_value);
-			inev.ie.kind = (fabs (delta) > 0
-					? (val->horizontal
-					   ? HORIZ_WHEEL_EVENT
-					   : WHEEL_EVENT)
-					: TOUCH_END_EVENT);
-			inev.ie.timestamp = xev->time;
-
-			XSETINT (inev.ie.x, lrint (xev->event_x));
-			XSETINT (inev.ie.y, lrint (xev->event_y));
-			XSETFRAME (inev.ie.frame_or_window, f);
-
-			if (fabs (delta) > 0)
-			  {
-			    inev.ie.modifiers = !s ? up_modifier : down_modifier;
-			    inev.ie.modifiers
-			      |= x_x_to_emacs_modifiers (dpyinfo,
-							 xev->mods.effective);
-			  }
-
-			window = window_from_coordinates (f, xev->event_x,
-							  xev->event_y, NULL,
-							  false, false);
-
-			if (WINDOWP (window))
-			  scroll_height = XWINDOW (window)->pixel_height;
-			else
-			  /* EVENT_X and EVENT_Y can be outside the
-			     frame if F holds the input grab, so fall
-			     back to the height of the frame instead.  */
-			  scroll_height = FRAME_PIXEL_HEIGHT (f);
-
-			scroll_unit = pow (scroll_height, 2.0 / 3.0);
-
-			if (NUMBERP (Vx_scroll_event_delta_factor))
-			  scroll_unit *= XFLOATINT (Vx_scroll_event_delta_factor);
-
-			if (fabs (delta) > 0)
-			  {
-			    if (val->horizontal)
-			      {
-				inev.ie.arg
-				  = list3 (Qnil,
-					   make_float (val->emacs_value
-						       * scroll_unit),
-					   make_float (0));
-			      }
-			    else
-			      {
-				inev.ie.arg = list3 (Qnil, make_float (0),
-						     make_float (val->emacs_value
-								 * scroll_unit));
-			      }
-			  }
-			else
-			  {
-			    inev.ie.arg = Qnil;
-			  }
-
-			kbd_buffer_store_event_hold (&inev.ie, hold_quit);
-
-			val->emacs_value = 0;
-		      }
-		    values++;
-		  }
-
-		inev.ie.kind = NO_EVENT;
-	      }
-
-#ifdef HAVE_XWIDGETS
-	    if (xv)
-	      {
-		if (found_valuator)
-		  xwidget_scroll (xv, xev->event_x, xev->event_y,
-				  xv_total_x, xv_total_y, xev->mods.effective,
-				  xev->time, any_stop_p);
-		else
-		  xwidget_motion_notify (xv, xev->event_x, xev->event_y,
-					 xev->mods.effective, xev->time);
-
+	      if (!device || !device->master_p)
 		goto XI_OTHER;
-	      }
+
+#ifdef XI_TouchBegin
+	      if (xev->flags & XIPointerEmulated
+		  && dpyinfo->xi2_version >= 2)
+		goto XI_OTHER;
 #endif
-	    if (found_valuator)
-	      goto XI_OTHER;
 
-	    ev.x = lrint (xev->event_x);
-	    ev.y = lrint (xev->event_y);
-	    ev.window = xev->event;
-	    ev.time = xev->time;
+	      x_display_set_last_user_time (dpyinfo, xi_event->time);
 
-	    previous_help_echo_string = help_echo_string;
-	    help_echo_string = Qnil;
+#ifdef HAVE_XWIDGETS
+	      struct xwidget_view *xv = xwidget_view_from_window (xev->event);
+	      double xv_total_x = 0.0;
+	      double xv_total_y = 0.0;
+#endif
 
-	    if (hlinfo->mouse_face_hidden)
-	      {
-		hlinfo->mouse_face_hidden = false;
-		clear_mouse_face (hlinfo);
-	      }
+	      for (int i = 0; i < states->mask_len * 8; i++)
+		{
+		  if (XIMaskIsSet (states->mask, i))
+		    {
+		      struct xi_scroll_valuator_t *val;
+		      double delta, scroll_unit;
+		      int scroll_height;
+		      Lisp_Object window;
 
-	    f = mouse_or_wdesc_frame (dpyinfo, xev->event);
+
+		      /* See the comment on top of
+			 x_init_master_valuators for more details on how
+			 scroll wheel movement is reported on XInput 2.  */
+		      delta = x_get_scroll_valuator_delta (dpyinfo, xev->deviceid,
+							   i, *values, &val);
+
+		      if (delta != DBL_MAX)
+			{
+#ifdef HAVE_XWIDGETS
+			  if (xv)
+			    {
+			      /* FIXME: figure out what in GTK is
+				 causing interval values to jump by
+				 >100 at the end of a touch sequence
+				 when an xwidget gets a scroll event
+				 where is_stop is TRUE.  */
+			      if (fabs (delta) > 100)
+				continue;
+			      if (val->horizontal)
+				xv_total_x += delta;
+			      else
+				xv_total_y += delta;
+
+			      found_valuator = true;
+			      continue;
+			    }
+#endif
+			  if (!f)
+			    {
+			      f = x_any_window_to_frame (dpyinfo, xev->event);
+
+			      if (!f)
+				goto XI_OTHER;
+			    }
+
+			  found_valuator = true;
+
+			  if (signbit (delta) != signbit (val->emacs_value))
+			    val->emacs_value = 0;
+
+			  val->emacs_value += delta;
+
+			  if (mwheel_coalesce_scroll_events
+			      && (fabs (val->emacs_value) < 1)
+			      && (fabs (delta) > 0))
+			    continue;
+
+			  bool s = signbit (val->emacs_value);
+			  inev.ie.kind = (fabs (delta) > 0
+					  ? (val->horizontal
+					     ? HORIZ_WHEEL_EVENT
+					     : WHEEL_EVENT)
+					  : TOUCH_END_EVENT);
+			  inev.ie.timestamp = xev->time;
+
+			  XSETINT (inev.ie.x, lrint (xev->event_x));
+			  XSETINT (inev.ie.y, lrint (xev->event_y));
+			  XSETFRAME (inev.ie.frame_or_window, f);
+
+			  if (fabs (delta) > 0)
+			    {
+			      inev.ie.modifiers = !s ? up_modifier : down_modifier;
+			      inev.ie.modifiers
+				|= x_x_to_emacs_modifiers (dpyinfo,
+							   xev->mods.effective);
+			    }
+
+			  window = window_from_coordinates (f, xev->event_x,
+							    xev->event_y, NULL,
+							    false, false);
+
+			  if (WINDOWP (window))
+			    scroll_height = XWINDOW (window)->pixel_height;
+			  else
+			    /* EVENT_X and EVENT_Y can be outside the
+			       frame if F holds the input grab, so fall
+			       back to the height of the frame instead.  */
+			    scroll_height = FRAME_PIXEL_HEIGHT (f);
+
+			  scroll_unit = pow (scroll_height, 2.0 / 3.0);
+
+			  if (NUMBERP (Vx_scroll_event_delta_factor))
+			    scroll_unit *= XFLOATINT (Vx_scroll_event_delta_factor);
+
+			  if (fabs (delta) > 0)
+			    {
+			      if (val->horizontal)
+				{
+				  inev.ie.arg
+				    = list3 (Qnil,
+					     make_float (val->emacs_value
+							 * scroll_unit),
+					     make_float (0));
+				}
+			      else
+				{
+				  inev.ie.arg = list3 (Qnil, make_float (0),
+						       make_float (val->emacs_value
+								   * scroll_unit));
+				}
+			    }
+			  else
+			    {
+			      inev.ie.arg = Qnil;
+			    }
+
+			  kbd_buffer_store_event_hold (&inev.ie, hold_quit);
+
+			  val->emacs_value = 0;
+			}
+		      values++;
+		    }
+
+		  inev.ie.kind = NO_EVENT;
+		}
+
+#ifdef HAVE_XWIDGETS
+	      if (xv)
+		{
+		  uint state = xev->mods.effective;
+
+		  if (xev->buttons.mask_len)
+		    {
+		      if (XIMaskIsSet (xev->buttons.mask, 1))
+			state |= Button1Mask;
+		      if (XIMaskIsSet (xev->buttons.mask, 2))
+			state |= Button2Mask;
+		      if (XIMaskIsSet (xev->buttons.mask, 3))
+			state |= Button3Mask;
+		    }
+
+		  if (found_valuator)
+		    xwidget_scroll (xv, xev->event_x, xev->event_y,
+				    -xv_total_x, -xv_total_y, state,
+				    xev->time, (xv_total_x == 0.0
+						&& xv_total_y == 0.0));
+		  else
+		    xwidget_motion_notify (xv, xev->event_x, xev->event_y,
+					   state, xev->time);
+
+		  goto XI_OTHER;
+		}
+#endif
+	      if (found_valuator)
+		{
+#ifdef USE_GTK
+		  if (f && xg_event_is_for_scrollbar (f, event))
+		    *finish = X_EVENT_DROP;
+#endif
+		  goto XI_OTHER;
+		}
+
+	      ev.x = lrint (xev->event_x);
+	      ev.y = lrint (xev->event_y);
+	      ev.window = xev->event;
+	      ev.time = xev->time;
+
+	      previous_help_echo_string = help_echo_string;
+	      help_echo_string = Qnil;
+
+	      if (hlinfo->mouse_face_hidden)
+		{
+		  hlinfo->mouse_face_hidden = false;
+		  clear_mouse_face (hlinfo);
+		}
+
+	      f = mouse_or_wdesc_frame (dpyinfo, xev->event);
 
 #ifdef USE_GTK
-	    if (f && xg_event_is_for_scrollbar (f, event))
-	      f = 0;
+	      if (f && xg_event_is_for_scrollbar (f, event))
+		f = 0;
 #endif
-	    if (f)
-	      {
-		/* Maybe generate a SELECT_WINDOW_EVENT for
-		   `mouse-autoselect-window' but don't let popup menus
-		   interfere with this (Bug#1261).  */
-		if (!NILP (Vmouse_autoselect_window)
-		    && !popup_activated ()
-		    /* Don't switch if we're currently in the minibuffer.
-		       This tries to work around problems where the
-		       minibuffer gets unselected unexpectedly, and where
-		       you then have to move your mouse all the way down to
-		       the minibuffer to select it.  */
-		    && !MINI_WINDOW_P (XWINDOW (selected_window))
-		    /* With `focus-follows-mouse' non-nil create an event
-		       also when the target window is on another frame.  */
-		    && (f == XFRAME (selected_frame)
-			|| !NILP (focus_follows_mouse)))
-		  {
-		    static Lisp_Object last_mouse_window;
-		    Lisp_Object window = window_from_coordinates (f, ev.x, ev.y, 0, false, false);
+	      if (f)
+		{
+		  /* Maybe generate a SELECT_WINDOW_EVENT for
+		     `mouse-autoselect-window' but don't let popup menus
+		     interfere with this (Bug#1261).  */
+		  if (!NILP (Vmouse_autoselect_window)
+		      && !popup_activated ()
+		      /* Don't switch if we're currently in the minibuffer.
+			 This tries to work around problems where the
+			 minibuffer gets unselected unexpectedly, and where
+			 you then have to move your mouse all the way down to
+			 the minibuffer to select it.  */
+		      && !MINI_WINDOW_P (XWINDOW (selected_window))
+		      /* With `focus-follows-mouse' non-nil create an event
+			 also when the target window is on another frame.  */
+		      && (f == XFRAME (selected_frame)
+			  || !NILP (focus_follows_mouse)))
+		    {
+		      static Lisp_Object last_mouse_window;
+		      Lisp_Object window = window_from_coordinates (f, ev.x, ev.y, 0, false, false);
 
-		    /* A window will be autoselected only when it is not
-		       selected now and the last mouse movement event was
-		       not in it.  The remainder of the code is a bit vague
-		       wrt what a "window" is.  For immediate autoselection,
-		       the window is usually the entire window but for GTK
-		       where the scroll bars don't count.  For delayed
-		       autoselection the window is usually the window's text
-		       area including the margins.  */
-		    if (WINDOWP (window)
-			&& !EQ (window, last_mouse_window)
-			&& !EQ (window, selected_window))
-		      {
-			inev.ie.kind = SELECT_WINDOW_EVENT;
-			inev.ie.frame_or_window = window;
-		      }
+		      /* A window will be autoselected only when it is not
+			 selected now and the last mouse movement event was
+			 not in it.  The remainder of the code is a bit vague
+			 wrt what a "window" is.  For immediate autoselection,
+			 the window is usually the entire window but for GTK
+			 where the scroll bars don't count.  For delayed
+			 autoselection the window is usually the window's text
+			 area including the margins.  */
+		      if (WINDOWP (window)
+			  && !EQ (window, last_mouse_window)
+			  && !EQ (window, selected_window))
+			{
+			  inev.ie.kind = SELECT_WINDOW_EVENT;
+			  inev.ie.frame_or_window = window;
+			}
 
-		    /* Remember the last window where we saw the mouse.  */
-		    last_mouse_window = window;
-		  }
+		      /* Remember the last window where we saw the mouse.  */
+		      last_mouse_window = window;
+		    }
 
-		if (!x_note_mouse_movement (f, &ev))
-		  help_echo_string = previous_help_echo_string;
-	      }
-	    else
-	      {
+		  if (!x_note_mouse_movement (f, &ev))
+		    help_echo_string = previous_help_echo_string;
+		}
+	      else
+		{
 #ifndef USE_TOOLKIT_SCROLL_BARS
-		struct scroll_bar *bar
-		  = x_window_to_scroll_bar (xi_event->display, xev->event, 2);
+		  struct scroll_bar *bar
+		    = x_window_to_scroll_bar (xi_event->display, xev->event, 2);
 
-		if (bar)
-		  x_scroll_bar_note_movement (bar, &ev);
+		  if (bar)
+		    x_scroll_bar_note_movement (bar, &ev);
 #endif /* USE_TOOLKIT_SCROLL_BARS */
 
-		/* If we move outside the frame, then we're
-		   certainly no longer on any text in the frame.  */
-		clear_mouse_face (hlinfo);
-	      }
+		  /* If we move outside the frame, then we're
+		     certainly no longer on any text in the frame.  */
+		  clear_mouse_face (hlinfo);
+		}
 
-	    /* If the contents of the global variable help_echo_string
-	       has changed, generate a HELP_EVENT.  */
-	    if (!NILP (help_echo_string)
-		|| !NILP (previous_help_echo_string))
-	      do_help = 1;
-	    goto XI_OTHER;
+	      /* If the contents of the global variable help_echo_string
+		 has changed, generate a HELP_EVENT.  */
+	      if (!NILP (help_echo_string)
+		  || !NILP (previous_help_echo_string))
+		do_help = 1;
+	      goto XI_OTHER;
+	    }
 	  case XI_ButtonRelease:
 	  case XI_ButtonPress:
 	    {
@@ -10218,18 +10371,47 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      bool tab_bar_p = false;
 	      bool tool_bar_p = false;
 	      struct xi_device_t *device;
+#ifdef HAVE_XWIDGETS
+	      struct xwidget_view *xvw;
+#endif
 
 #ifdef XIPointerEmulated
 	      /* Ignore emulated scroll events when XI2 native
 		 scroll events are present.  */
-	      if (dpyinfo->xi2_version >= 1
-		  && xev->detail >= 4
-		  && xev->detail <= 8
+	      if (((dpyinfo->xi2_version == 1
+		   && xev->detail >= 4
+		   && xev->detail <= 8)
+		   || (dpyinfo->xi2_version >= 2))
 		  && xev->flags & XIPointerEmulated)
-		goto XI_OTHER;
+		{
+		  *finish = X_EVENT_DROP;
+		  goto XI_OTHER;
+		}
+#endif
+
+#ifdef HAVE_XWIDGETS
+	      xvw = xwidget_view_from_window (xev->event);
+	      if (xvw)
+		{
+		  xwidget_button (xvw, xev->evtype == XI_ButtonPress,
+				  lrint (xev->event_x), lrint (xev->event_y),
+				  xev->detail, xev->mods.effective, xev->time);
+
+		  if (!EQ (selected_window, xvw->w) && (xev->detail < 4))
+		    {
+		      inev.ie.kind = SELECT_WINDOW_EVENT;
+		      inev.ie.frame_or_window = xvw->w;
+		    }
+
+		  *finish = X_EVENT_DROP;
+		  goto XI_OTHER;
+		}
 #endif
 
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
+
+	      if (!device || !device->master_p)
+		goto XI_OTHER;
 
 	      bv.button = xev->detail;
 	      bv.type = xev->evtype == XI_ButtonPress ? ButtonPress : ButtonRelease;
@@ -10356,8 +10538,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  device->grab &= ~(1 << xev->detail);
 		}
 
-	      xi_grab_or_ungrab_device (device, dpyinfo, xev->event);
-
 	      if (f)
 		f->mouse_moved = false;
 
@@ -10397,6 +10577,12 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      int copy_bufsiz = sizeof (copy_buffer);
 	      ptrdiff_t i;
 	      int nchars, len;
+	      struct xi_device_t *device;
+
+	      device = xi_device_from_id (dpyinfo, xev->deviceid);
+
+	      if (!device || !device->master_p)
+		goto XI_OTHER;
 
 #if defined (USE_X_TOOLKIT) || defined (USE_GTK)
 	      /* Dispatch XI_KeyPress events when in menu.  */
@@ -10754,6 +10940,196 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  case XI_DeviceChanged:
 	    x_init_master_valuators (dpyinfo);
 	    goto XI_OTHER;
+#ifdef XI_TouchBegin
+	  case XI_TouchBegin:
+	    {
+	      struct xi_device_t *device;
+	      bool menu_bar_p = false, tool_bar_p = false;
+#ifdef HAVE_GTK3
+	      GdkRectangle test_rect;
+#endif
+	      device = xi_device_from_id (dpyinfo, xev->deviceid);
+	      x_display_set_last_user_time (dpyinfo, xev->time);
+
+	      if (!device)
+		goto XI_OTHER;
+
+	      if (xi_find_touch_point (device, xev->detail))
+		emacs_abort ();
+
+	      f = x_any_window_to_frame (dpyinfo, xev->event);
+
+#ifdef HAVE_GTK3
+	      menu_bar_p = (f && FRAME_X_OUTPUT (f)->menubar_widget
+			    && xg_event_is_for_menubar (f, event));
+	      if (f && FRAME_X_OUTPUT (f)->toolbar_widget)
+		{
+		  test_rect.x = xev->event_x;
+		  test_rect.y = xev->event_y;
+		  test_rect.width = 1;
+		  test_rect.height = 1;
+
+		  tool_bar_p = gtk_widget_intersect (FRAME_X_OUTPUT (f)->toolbar_widget,
+						     &test_rect, NULL);
+		}
+#endif
+
+	      if (!menu_bar_p && !tool_bar_p)
+		{
+		  if (f && device->direct_p)
+		    {
+		      *finish = X_EVENT_DROP;
+		      x_catch_errors (dpyinfo->display);
+		      XIAllowTouchEvents (dpyinfo->display, xev->deviceid,
+					  xev->detail, xev->event, XIAcceptTouch);
+		      if (!x_had_errors_p (dpyinfo->display))
+			{
+			  xi_link_touch_point (device, xev->detail, xev->event_x,
+					       xev->event_y);
+
+			  inev.ie.kind = TOUCHSCREEN_BEGIN_EVENT;
+			  inev.ie.timestamp = xev->time;
+			  XSETFRAME (inev.ie.frame_or_window, f);
+			  XSETINT (inev.ie.x, lrint (xev->event_x));
+			  XSETINT (inev.ie.y, lrint (xev->event_y));
+			  XSETINT (inev.ie.arg, xev->detail);
+			}
+		      x_uncatch_errors_after_check ();
+		    }
+#ifndef HAVE_GTK3
+		  else
+		    {
+		      x_catch_errors (dpyinfo->display);
+		      XIAllowTouchEvents (dpyinfo->display, xev->deviceid,
+					  xev->detail, xev->event, XIRejectTouch);
+		      x_uncatch_errors ();
+		    }
+#endif
+		}
+	      else
+		{
+#ifdef HAVE_GTK3
+		  bool was_waiting_for_input = waiting_for_input;
+		  /* This hack was adopted from the NS port.  Whether
+		     or not it is actually safe is a different story
+		     altogether.  */
+		  if (waiting_for_input)
+		    waiting_for_input = 0;
+		  set_frame_menubar (f, true);
+		  waiting_for_input = was_waiting_for_input;
+#endif
+		}
+
+	      goto XI_OTHER;
+	    }
+	  case XI_TouchUpdate:
+	    {
+	      struct xi_device_t *device;
+	      struct xi_touch_point_t *touchpoint;
+	      Lisp_Object arg = Qnil;
+
+	      device = xi_device_from_id (dpyinfo, xev->deviceid);
+	      x_display_set_last_user_time (dpyinfo, xev->time);
+
+	      if (!device)
+		goto XI_OTHER;
+
+	      touchpoint = xi_find_touch_point (device, xev->detail);
+
+	      if (!touchpoint)
+		goto XI_OTHER;
+
+	      touchpoint->x = xev->event_x;
+	      touchpoint->y = xev->event_y;
+
+	      f = x_any_window_to_frame (dpyinfo, xev->event);
+
+	      if (f && device->direct_p)
+		{
+		  inev.ie.kind = TOUCHSCREEN_UPDATE_EVENT;
+		  inev.ie.timestamp = xev->time;
+		  XSETFRAME (inev.ie.frame_or_window, f);
+
+		  for (touchpoint = device->touchpoints;
+		       touchpoint; touchpoint = touchpoint->next)
+		    {
+		      arg = Fcons (list3i (lrint (touchpoint->x),
+					   lrint (touchpoint->y),
+					   lrint (touchpoint->number)),
+				   arg);
+		    }
+
+		  inev.ie.arg = arg;
+		}
+
+	      goto XI_OTHER;
+	    }
+	  case XI_TouchEnd:
+	    {
+	      struct xi_device_t *device;
+	      bool unlinked_p;
+
+	      device = xi_device_from_id (dpyinfo, xev->deviceid);
+	      x_display_set_last_user_time (dpyinfo, xev->time);
+
+	      if (!device)
+		goto XI_OTHER;
+
+	      unlinked_p = xi_unlink_touch_point (xev->detail, device);
+
+	      if (unlinked_p)
+		{
+		  f = x_any_window_to_frame (dpyinfo, xev->event);
+
+		  if (f && device->direct_p)
+		    {
+		      inev.ie.kind = TOUCHSCREEN_END_EVENT;
+		      inev.ie.timestamp = xev->time;
+		      XSETFRAME (inev.ie.frame_or_window, f);
+		      XSETINT (inev.ie.x, lrint (xev->event_x));
+		      XSETINT (inev.ie.y, lrint (xev->event_y));
+		      XSETINT (inev.ie.arg, xev->detail);
+		    }
+		}
+
+	      goto XI_OTHER;
+	    }
+#endif
+#ifdef XI_GesturePinchBegin
+	  case XI_GesturePinchBegin:
+	  case XI_GesturePinchUpdate:
+	    {
+#ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
+	      XIGesturePinchEvent *pev = (XIGesturePinchEvent *) xi_event;
+	      struct xi_device_t *device = xi_device_from_id (dpyinfo, pev->deviceid);
+
+	      if (!device || !device->master_p)
+		goto XI_OTHER;
+
+	      any = x_any_window_to_frame (dpyinfo, pev->event);
+	      if (any)
+		{
+		  inev.ie.kind = PINCH_EVENT;
+		  inev.ie.modifiers = x_x_to_emacs_modifiers (FRAME_DISPLAY_INFO (any),
+							      pev->mods.effective);
+		  XSETINT (inev.ie.x, lrint (pev->event_x));
+		  XSETINT (inev.ie.y, lrint (pev->event_y));
+		  XSETFRAME (inev.ie.frame_or_window, any);
+		  inev.ie.arg = list4 (make_float (pev->delta_x),
+				       make_float (pev->delta_y),
+				       make_float (pev->scale),
+				       make_float (pev->delta_angle));
+		}
+#endif
+	      /* Once again GTK seems to crash when confronted by
+		 events it doesn't understand.  */
+	      *finish = X_EVENT_DROP;
+	      goto XI_OTHER;
+	    }
+	  case XI_GesturePinchEnd:
+	    *finish = X_EVENT_DROP;
+	    goto XI_OTHER;
+#endif
 	  default:
 	    goto XI_OTHER;
 	  }
@@ -12946,9 +13322,26 @@ void
 frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y)
 {
   block_input ();
+#ifdef HAVE_XINPUT2
+  int deviceid;
 
-  XWarpPointer (FRAME_X_DISPLAY (f), None, FRAME_X_WINDOW (f),
-		0, 0, 0, 0, pix_x, pix_y);
+  if (FRAME_DISPLAY_INFO (f)->supports_xi2)
+    {
+      XGrabServer (FRAME_X_DISPLAY (f));
+      if (XIGetClientPointer (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
+			      &deviceid))
+	{
+	  XIWarpPointer (FRAME_X_DISPLAY (f),
+			 deviceid, None,
+			 FRAME_X_WINDOW (f),
+			 0, 0, 0, 0, pix_x, pix_y);
+	}
+      XUngrabServer (FRAME_X_DISPLAY (f));
+    }
+  else
+#endif
+    XWarpPointer (FRAME_X_DISPLAY (f), None, FRAME_X_WINDOW (f),
+		  0, 0, 0, 0, pix_x, pix_y);
   unblock_input ();
 }
 
@@ -14456,7 +14849,9 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   dpyinfo->supports_xi2 = false;
   int rc;
   int major = 2;
-#ifdef XI_BarrierHit /* XInput 2.3 */
+#ifdef XI_GesturePinchBegin /* XInput 2.4 */
+  int minor = 4;
+#elif XI_BarrierHit /* XInput 2.3 */
   int minor = 3;
 #elif defined XI_TouchBegin /* XInput 2.2 */
   int minor = 2;
@@ -14480,10 +14875,31 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   dpyinfo->xi2_version = minor;
 #endif
 
+#ifdef HAVE_XRANDR
+  int xrr_event_base, xrr_error_base;
+  bool xrr_ok = false;
+  xrr_ok = XRRQueryExtension (dpy, &xrr_event_base, &xrr_error_base);
+  if (xrr_ok)
+    {
+      XRRQueryVersion (dpy, &dpyinfo->xrandr_major_version,
+		       &dpyinfo->xrandr_minor_version);
+    }
+#endif
+
 #ifdef HAVE_XKB
-  dpyinfo->xkb_desc = XkbGetMap (dpyinfo->display,
-				 XkbAllComponentsMask,
-				 XkbUseCoreKbd);
+  int xkb_major, xkb_minor, xkb_op, xkb_event, xkb_error_code;
+  xkb_major = XkbMajorVersion;
+  xkb_minor = XkbMinorVersion;
+
+  if (XkbLibraryVersion (&xkb_major, &xkb_minor)
+      && XkbQueryExtension (dpyinfo->display, &xkb_op, &xkb_event,
+			    &xkb_error_code, &xkb_major, &xkb_minor))
+    {
+      dpyinfo->supports_xkb = true;
+      dpyinfo->xkb_desc = XkbGetMap (dpyinfo->display,
+				     XkbAllComponentsMask,
+				     XkbUseCoreKbd);
+    }
 #endif
 
 #if defined USE_CAIRO || defined HAVE_XFT

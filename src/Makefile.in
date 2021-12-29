@@ -297,6 +297,9 @@ W32_OBJ=@W32_OBJ@
 ## -lkernel32 if CYGWIN but not HAVE_W32, else empty.
 W32_LIBS=@W32_LIBS@
 
+PGTK_OBJ=@PGTK_OBJ@
+PGTK_LIBS=@PGTK_LIBS@
+
 ## emacs.res if HAVE_W32
 EMACSRES = @EMACSRES@
 ## If HAVE_W32, compiler arguments for including
@@ -436,7 +439,7 @@ base_obj = dispnew.o frame.o scroll.o xdisp.o menu.o $(XMENU_OBJ) window.o \
 	$(if $(HYBRID_MALLOC),sheap.o) \
 	$(MSDOS_OBJ) $(MSDOS_X_OBJ) $(NS_OBJ) $(CYGWIN_OBJ) $(FONT_OBJ) \
 	$(W32_OBJ) $(WINDOW_SYSTEM_OBJ) $(XGSELOBJ) $(JSON_OBJ) \
-	$(TREE_SITTER_OBJ) $(HAIKU_OBJ)
+	$(TREE_SITTER_OBJ) $(HAIKU_OBJ) $(PGTK_OBJ)
 doc_obj = $(base_obj) $(NS_OBJC_OBJ)
 obj = $(doc_obj) $(HAIKU_CXX_OBJ)
 
@@ -526,11 +529,11 @@ endif
 ## but the second one seems like it could be more future-proof.
 shortlisp =
 lisp.mk: $(lispsource)/loadup.el
-	@rm -f $@
 	${AM_V_GEN}( printf 'shortlisp = \\\n'; \
 	sed -n 's/^[ \t]*(load "\([^"]*\)".*/\1/p' $< | \
 	  sed -e 's/$$/.elc \\/' -e 's/\.el\.elc/.el/'; \
-	echo "" ) > $@
+	echo "" ) > $@.tmp
+	$(AM_V_at)mv -f $@.tmp $@
 
 -include lisp.mk
 shortlisp_filter = leim/leim-list.el site-load.elc site-init.elc
@@ -543,7 +546,7 @@ export LISP_PRELOADED = ${shortlisp}
 lisp = $(addprefix ${lispsource}/,${shortlisp})
 
 ## Construct full set of libraries to be linked.
-LIBES = $(LIBS) $(W32_LIBS) $(LIBS_GNUSTEP) $(LIBX_BASE) $(LIBIMAGE) \
+LIBES = $(LIBS) $(W32_LIBS) $(LIBS_GNUSTEP) $(PGTK_LIBS) $(LIBX_BASE) $(LIBIMAGE) \
    $(LIBX_OTHER) $(LIBSOUND) \
    $(RSVG_LIBS) $(IMAGEMAGICK_LIBS) $(LIB_ACL) $(LIB_CLOCK_GETTIME) \
    $(WEBKIT_LIBS) \
@@ -618,8 +621,8 @@ endif
 
 ifeq ($(HAVE_BE_APP),yes)
 Emacs: emacs$(EXEEXT)
-	cp -f emacs$(EXEEXT) $@
-	$(AM_V_GEN) $(libsrc)/be-resources \
+	$(AM_V_GEN) cp -f emacs$(EXEEXT) $@
+	$(AM_V_at) $(libsrc)/be-resources \
 	  $(etc)/images/icons/hicolor/32x32/apps/emacs.png $@
 Emacs.pdmp: $(pdmp)
 	$(AM_V_GEN) cp -f $(pdmp) $@

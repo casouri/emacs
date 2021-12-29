@@ -64,6 +64,13 @@ this support.
 The named feature 'xinput2' can be used to test for the presence of
 XInput 2 support from Lisp programs.
 
+** Emacs now supports being built with pure GTK.
+To use this option, make sure the GTK 3 and Cairo development files
+are installed, and configure Emacs with the option '--with-pgtk'.
+Unlike the default X and GTK build, the resulting Emacs binary will
+work on any underlying window system supported by GDK, such as
+Wayland and Broadway.
+
 
 * Startup Changes in Emacs 29.1
 
@@ -81,17 +88,16 @@ time.
 * Incompatible changes in Emacs 29.1
 
 ---
-** 'C-x 8 .' has been moved to 'C-x 8 . .'.
-This is to open up the 'C-x 8 .' map to bind further characters there.
+** Support for old EIEIO functions is not autoloaded any more.
+You need an explicit (require 'eieio-compat) to use 'defmethod'
+and 'defgeneric' (which have been made obsolete in Emacs-25 with
+'cl-defmethod' and 'cl-defgeneric').
+Similarly you might need to (require 'eieio-compat) before loading
+files that were compiled with an old EIEIO (Emacs<25).
 
 ---
-** The mode line now uses a proportional font by default.
-To get the old monospaced mode line back, customize the
-'mode-line-active' and 'mode-line-inactive' faces not to inherit from
-the 'variable-pitch' face, or add this to your "~/.emacs":
-
-    (set-face-attribute 'mode-line-active nil :inherit 'mode-line)
-    (set-face-attribute 'mode-line-inactive nil :inherit 'mode-line)
+** 'C-x 8 .' has been moved to 'C-x 8 . .'.
+This is to open up the 'C-x 8 .' map to bind further characters there.
 
 
 * Changes in Emacs 29.1
@@ -162,6 +168,12 @@ Executing 'ert-deftest' with the same name as an existing test causes
 the previous definition to be discarded, which was probably not
 intended when this occurs in batch mode.  To remedy the error, rename
 tests so that they all have unique names.
+
++++
+*** ERT can generate JUnit test reports.
+When environment variable 'EMACS_TEST_JUNIT_REPORT' is set, ERT
+generates a JUnit test report under this file name.  This is useful
+for Emacs integration into CI/CD test environments.
 
 ** Emoji
 
@@ -244,6 +256,11 @@ height use 'window-height' in combination with 'body-lines'.
 ---
 *** 'C-x t RET' creates a new tab when the provided tab name doesn't exist.
 
+---
+*** New keymap 'tab-bar-history-mode-map'.
+By default, it contains 'C-c <left>' and 'C-c <right>' to browse
+the history of tab window configurations back and forward.
+
 ** Better detection of text suspiciously reordered on display.
 The function 'bidi-find-overridden-directionality' has been extended
 to detect reordering effects produced by embeddings and isolates
@@ -289,7 +306,7 @@ This command increases (or decreases) the number of empty lines before
 point.
 
 ---
-*** Improved mouse behavior with auto-scrolling modes.
+** Improved mouse behavior with auto-scrolling modes.
 When clicking inside the 'scroll-margin' or 'hscroll-margin' region
 the point is now moved only when releasing the mouse button.  This no
 longer results in a bogus selection, unless the mouse has been
@@ -302,6 +319,8 @@ effectively dragged.
 ** New user option 'yank-menu-max-items'.
 Customize this option to limit the number of entries in the menu
 "Edit->Paste from Kill Menu".  The default is 60.
+
+** Performing a pinch gesture on a touchpad now increases the text scale.
 
 ** show-paren-mode
 
@@ -330,6 +349,23 @@ received.
 
 
 * Changes in Specialized Modes and Packages in Emacs 29.1
+
+** Minibuffer and Completions
+
+*** The *Completions* buffer can now be automatically selected.
+To enable this behavior, customize the option 'completion-auto-select'
+to t.  Then pressing TAB will switch to the *Completions* buffer when
+it pops up that buffer.
+
+*** New user option 'completion-wrap-movement'.
+When non-nil, the commands 'next-completion' and 'previous-completion'
+automatically wrap around on reaching the beginning or the end of
+the *Completions* buffer.
+
+** Isearch and Replace
+
++++
+*** New user option 'char-fold-override' disables default character equivalences.
 
 ** New minor mode 'glyphless-display-mode'.
 This allows an easy way to toggle seeing all glyphless characters in
@@ -379,6 +415,11 @@ If non-nil, 'C-c C-a' will put attached files at the end of the message.
 ---
 *** Message Mode now supports image yanking.
 
+---
+*** New user option 'message-server-alist'.
+This controls automatic insertion of the "X-Message-SMTP-Method"
+header before sending a message.
+
 ** HTML Mode
 
 ---
@@ -391,6 +432,11 @@ If non-nil, 'C-c C-a' will put attached files at the end of the message.
 It narrows to the current node.
 
 ** eww/shr
+
++++
+*** New user option 'shr-allowed-images'.
+This complements 'shr-blocked-images', but allows specifying just the
+allowed images.
 
 +++
 *** New user option 'shr-use-xwidgets-for-media'.
@@ -826,8 +872,22 @@ This change is now applied in 'dired-insert-directory'.
 'unify-8859-on-decoding-mode', 'unify-8859-on-encoding-mode',
 'vc-arch-command'.
 
++++
+** Base64 encoding no longer tolerates latin-1 input.
+The functions 'base64-encode-string', 'base64url-encode-string',
+'base64-encode-region' and 'base64url-encode-region' no longer accept
+characters in the range U+0080..U+00FF as substitutes for single bytes
+in the range 128..255, but signal an error for all multibyte characters.
+The input must be encoded text.
+
 
 * Lisp Changes in Emacs 29.1
+
++++
+** New facility for handling session state: 'multisession-value'.
+This can be used as a convenient way to store (simple) application
+state, and 'M-x list-multisession-values' allows users to list
+(and edit) this data.
 
 +++
 ** New function 'get-display-property'.
@@ -847,6 +907,12 @@ This allows setting a minimum display width for a region of text.
 ** New event type 'touch-end'.
 This event is sent whenever the user's finger moves off the mouse
 wheel on some mice, or when the user's finger moves off the touchpad.
+
++++
+** New event type 'pinch'.
+This event is sent when a user peforms a pinch gesture on a touchpad,
+which is comprised of placing two fingers on the touchpad and moving
+them towards or away from each other.
 
 ** Keymaps and key definitions
 
@@ -891,6 +957,10 @@ in the documentation.
 If non-nil, remove the definition from the keymap.  This is subtly
 different from setting a definition to nil (when the keymap has a
 parent).
+
++++
+*** 'read-multiple-choice' now takes an optional SHOW-HELP argument.
+If non-nil, show the help buffer immediately, before any user input.
 
 +++
 *** New function 'key-valid-p'.
@@ -967,6 +1037,17 @@ when they have changed.
 ** New function 'font-has-char-p'.
 This can be used to check whether a specific font has a glyph for a
 character.
+
++++
+** 'window-text-pixel-size' now accepts a new argument 'ignore-line-at-end'.
+This controls whether or not the last screen line of the text being
+measured will be counted for the purpose of calculating the text
+dimensions.
+
++++
+** 'window-text-pixel-size' understands a new meaning of 'from'.
+Specifying a cons as the from argument allows to start measuring text
+from a specified amount of pixels above or below a position.
 
 ** XDG support
 
@@ -1136,9 +1217,28 @@ cookies set by web pages on disk.
 This variable is bound to t during the preparation of a "*Help*" buffer.
 
 +++
+** Timestamps like (1 . 1000) now work without warnings being generated.
+For example, (time-add nil '(1 . 1000)) no longer warns that the
+(1 . 1000) acts like (1000 . 1000000).  This warning, which was a
+temporary transition aid for Emacs 27, has served its purpose.
+
++++
 ** 'date-to-time' now assumes earliest values if its argument lacks
 month, day, or time.  For example, (date-to-time "2021-12-04") now
 assumes a time of 00:00 instead of signaling an error.
+
++++
+** New events for taking advantage of touchscreen devices.
+The events 'touchscreen-begin, 'touchscreen-update', and
+'touchscreen-end' have been added to take better advantage of
+touch-capable display panels.
+
++++
+** New error symbol 'permission-denied'.
+This is a subcategory of 'file-error', and is signaled when some file
+operation fails because the OS doesn't allow Emacs to access a file or
+a directory.
+
 
 * Changes in Emacs 29.1 on Non-Free Operating Systems
 

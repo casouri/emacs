@@ -2086,23 +2086,33 @@ displayed in a given window.  This function is used by
 (@pxref{Resizing Windows}) to make a window exactly as large as the text
 it contains.
 
-@defun window-text-pixel-size &optional window from to x-limit y-limit mode-lines
+@defun window-text-pixel-size &optional window from to x-limit y-limit mode-lines ignore-line-at-end
 This function returns the size of the text of @var{window}'s buffer in
 pixels.  @var{window} must be a live window and defaults to the
 selected one.  The return value is a cons of the maximum pixel-width
 of any text line and the maximum pixel-height of all text lines.  This
 function exists to allow Lisp programs to adjust the dimensions of
-@var{window} to the buffer text it needs to display.
+@var{window} to the buffer text it needs to display, and for other
+similar situations.
+
+The return value can also optionally (see below) include the buffer
+position of the first line whose dimensions were measured.
 
 The optional argument @var{from}, if non-@code{nil}, specifies the
 first text position to consider, and defaults to the minimum
 accessible position of the buffer.  If @var{from} is @code{t}, it
 stands for the minimum accessible position that is not a newline
-character.  The optional argument @var{to}, if non-@code{nil},
-specifies the last text position to consider, and defaults to the
-maximum accessible position of the buffer.  If @var{to} is @code{t},
-it stands for the maximum accessible position that is not a newline
-character.
+character.  If @var{from} is a cons, its @code{car} specifies a buffer
+position, and its @code{cdr} specifies the vertical offset in pixels
+from that position to the first screen line whose text is to be
+measured.  (The measurement will start from the visual beginning of
+that screen line.)  In that case, the return value will instead be a
+list of the pixel-width, pixel-height, and the buffer position of the
+first line that was measured.  The optional argument @var{to}, if
+non-@code{nil}, specifies the last text position to consider, and
+defaults to the maximum accessible position of the buffer.  If
+@var{to} is @code{t}, it stands for the maximum accessible position
+that is not a newline character.
 
 The optional argument @var{x-limit}, if non-@code{nil}, specifies the
 maximum X coordinate beyond which text should be ignored; it is
@@ -2135,6 +2145,12 @@ in the return value.  If it is either the symbol @code{mode-line},
 line, if present, in the return value.  If it is @code{t}, include the
 height of all of these lines, if present, in the return value.
 @end defun
+
+The optional argument @var{ignore-line-at-end} controls whether or
+not to count the height of text in @var{to}'s screen line as part of
+the returned pixel-height.  This is useful if your Lisp program is
+only interested in the dimensions of text up to and excluding the
+visual beginning of @var{to}'s screen line.
 
 @code{window-text-pixel-size} treats the text displayed in a window as a
 whole and does not care about the size of individual lines.  The
@@ -2785,8 +2801,8 @@ apply to.  Here are the possible values of @var{characteristic}:
 The kind of window system the terminal uses---either @code{graphic}
 (any graphics-capable display), @code{x}, @code{pc} (for the MS-DOS
 console), @code{w32} (for MS Windows 9X/NT/2K/XP), @code{haiku} (for
-Haiku), or @code{tty} (a non-graphics-capable display).
-@xref{Window Systems, window-system}.
+Haiku), @code{pgtk} (for GTK), or @code{tty} (a non-graphics-capable
+display).  @xref{Window Systems, window-system}.
 
 @item class
 What kinds of colors the terminal supports---either @code{color},

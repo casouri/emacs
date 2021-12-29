@@ -701,8 +701,10 @@ interactively.  Turn the filename into a URL with function
 	  (cond ((not (buffer-modified-p)))
 		(browse-url-save-file (save-buffer))
 		(t (message "%s modified since last save" file))))))
-  (when (file-remote-p file)
-    (setq file (file-local-copy file)))
+  (when (and (file-remote-p file)
+             (not browse-url-temp-file-name))
+    (setq browse-url-temp-file-name (file-local-copy file)
+          file browse-url-temp-file-name))
   (browse-url (browse-url-file-url file))
   (run-hooks 'browse-url-of-file-hook))
 
@@ -787,6 +789,8 @@ See `browse-url' for details."
 
 ;; A generic command to call the current browse-url-browser-function
 
+(declare-function pgtk-backend-display-class "pgtkfns.c" (&optional terminal))
+
 ;;;###autoload
 (defun browse-url (url &rest args)
   "Open URL using a configurable method.
@@ -824,8 +828,17 @@ If ARGS are omitted, the default is to pass
     ;; When connected to various displays, be careful to use the display of
     ;; the currently selected frame, rather than the original start display,
     ;; which may not even exist any more.
-    (if (stringp (frame-parameter nil 'display))
-        (setenv "DISPLAY" (frame-parameter nil 'display)))
+    (let ((dpy (frame-parameter nil 'display))
+          classname)
+      (if (stringp dpy)
+        (cond
+         ((featurep 'pgtk)
+          (setq classname (pgtk-backend-display-class))
+          (if (equal classname "GdkWaylandDisplay")
+              (setenv "WAYLAND_DISPLAY" dpy)
+            (setenv "DISPLAY" dpy)))
+         (t
+          (setenv "DISPLAY" dpy)))))
     (if (functionp function)
         (apply function url args)
       (error "No suitable browser for URL %s" url))))

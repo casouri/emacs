@@ -75,7 +75,8 @@ a DOCTYPE or an XML declaration."
   :type 'boolean
   :version "22.1")
 
-(defvaralias 'sgml-transformation 'sgml-transformation-function)
+(define-obsolete-variable-alias 'sgml-transformation
+  'sgml-transformation-function "29.1")
 
 (defcustom sgml-transformation-function 'identity
   "Default value for `skeleton-transformation-function' in SGML mode."
@@ -623,6 +624,7 @@ Do \\[describe-key] on the following bindings to discover what they do.
   (setq-local comment-indent-function 'sgml-comment-indent)
   (setq-local comment-line-break-function 'sgml-comment-indent-new-line)
   (setq-local skeleton-further-elements '((completion-ignore-case t)))
+  (setq-local skeleton-end-newline nil)
   (setq-local skeleton-end-hook
 	      (lambda ()
 		(or (eolp)

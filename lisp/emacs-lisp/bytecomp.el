@@ -510,7 +510,7 @@ Return the compile-time value of FORM."
                               ;; whether to compile as byte-compile-form
                               ;; or byte-compile-file-form.
                               (let ((expanded
-                                     (macroexpand-all
+                                     (macroexpand--all-toplevel
                                       form
                                       macroexpand-all-environment)))
                                 (eval expanded lexical-binding)
@@ -2676,15 +2676,6 @@ list that represents a doc string reference.
 (defun byte-compile-file-form-make-obsolete (form)
   (prog1 (byte-compile-keep-pending form)
     (apply 'make-obsolete (mapcar 'eval (cdr form)))))
-
-;; This handler is not necessary, but it makes the output from dont-compile
-;; and similar macros cleaner.
-(put 'eval 'byte-hunk-handler 'byte-compile-file-form-eval)
-(defun byte-compile-file-form-eval (form)
-  (if (and (eq (car-safe (nth 1 form)) 'quote)
-           (equal (nth 2 form) lexical-binding))
-      (nth 1 (nth 1 form))
-    (byte-compile-keep-pending form)))
 
 (defun byte-compile-file-form-defmumble (name macro arglist body rest)
   "Process a `defalias' for NAME.

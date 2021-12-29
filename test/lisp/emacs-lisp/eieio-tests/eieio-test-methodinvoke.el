@@ -55,6 +55,7 @@
 ;;; Code:
 
 (require 'eieio)
+(require 'eieio-compat)
 (require 'ert)
 
 (defvar eieio-test-method-order-list nil
@@ -271,6 +272,7 @@
 (defclass E (E-base1 E-base2) () :method-invocation-order :breadth-first)
 
 (with-suppressed-warnings ((obsolete defmethod)
+                           (obsolete defgeneric)
                            (obsolete next-method-p)
                            (obsolete call-next-method))
   (defmethod eitest-F ((_p E))

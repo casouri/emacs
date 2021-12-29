@@ -2053,7 +2053,7 @@ You must have the \"hashcash\" binary installed, see `hashcash-path'."
 (autoload 'gnus-groups-from-server "gnus")
 (autoload 'gnus-open-server "gnus-int")
 (autoload 'gnus-output-to-mail "gnus-util")
-(autoload 'gnus-output-to-rmail "gnus-util")
+(autoload 'gnus-output-to-rmail "gnus-rmail")
 (autoload 'gnus-request-post "gnus-int")
 (autoload 'gnus-server-string "gnus")
 (autoload 'message-setup-toolbar "messagexmas")
@@ -4335,6 +4335,44 @@ Instead, just auto-save the buffer and then bury it."
 
 (autoload 'mml-secure-bcc-is-safe "mml-sec")
 
+(defcustom message-server-alist nil
+  "Alist of rules to generate \"X-Message-SMTP-Method\" header.
+The header will be inserted just before the message is sent.
+Elements should be of the form (COND . METHOD).
+If COND is a string, METHOD will be inserted if the \"From\"
+address compares equal with COND.
+If COND is a function, METHOD will be inserted if COND returns
+a non-nil value when called in the message buffer without any
+arguments.  If METHOD is nil in this case, the return value of
+the function will be inserted instead.
+If the buffer already has a\"X-Message-SMTP-Method\" header,
+it is left unchanged."
+  :type '(alist :key-type '(choice
+                            (string :tag "From Address")
+                            (function :tag "Predicate"))
+                :value-type 'string)
+  :version "29.1"
+  :group 'message-sending)
+
+(defun message-update-smtp-method-header ()
+  "Insert an X-Message-SMTP-Method header according to `message-server-alist'."
+  (unless (message-fetch-field "X-Message-SMTP-Method")
+    (let ((from (cadr (mail-extract-address-components (message-fetch-field "From"))))
+          method)
+      (catch 'exit
+        (dolist (server message-server-alist)
+          (cond ((functionp (car server))
+                 (let ((res (funcall (car server))))
+                   (when res
+                     (setq method (or (cdr server) res))
+                     (throw 'exit nil))))
+                ((and (stringp (car server))
+                      (string= (car server) from))
+                 (setq method (cdr server))
+                 (throw 'exit nil)))))
+      (when method
+        (message-add-header (concat "X-Message-SMTP-Method: " method))))))
+
 (defun message-send (&optional arg)
   "Send the message in the current buffer.
 If `message-interactive' is non-nil, wait for success indication or
@@ -4348,6 +4386,7 @@ It should typically alter the sending method in some way or other."
   (undo-boundary)
   (let ((inhibit-read-only t))
     (put-text-property (point-min) (point-max) 'read-only nil))
+  (message-update-smtp-method-header)
   (message-fix-before-sending)
   (run-hooks 'message-send-hook)
   (mml-secure-bcc-is-safe)

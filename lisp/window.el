@@ -5151,7 +5151,10 @@ nil means to not handle the buffer in a particular way.  This
     (cond
      ;; First try to delete dedicated windows that are not side windows.
      ((and dedicated (not (eq dedicated 'side))
-           (window--delete window 'dedicated (eq bury-or-kill 'kill))))
+           (window--delete window 'dedicated (eq bury-or-kill 'kill)))
+      ;; If the previously selected window is still alive, select it.
+      (when (window-live-p (nth 2 quit-restore))
+        (select-window (nth 2 quit-restore))))
      ((and (not prev-buffer)
 	   (eq (nth 1 quit-restore) 'tab)
 	   (eq (nth 3 quit-restore) buffer))
@@ -7470,6 +7473,14 @@ ALIST.  See `display-buffer' for details."
   :risky t
   :version "24.1"
   :group 'windows)
+
+(defcustom display-comint-buffer-action 'display-buffer-same-window
+  "The action to display a comint buffer."
+  :type 'display-buffer--action-function-custom-type
+  :risky t
+  :version "29.1"
+  :group 'windows
+  :group 'comint)
 
 (defconst display-buffer-fallback-action
   '((display-buffer--maybe-same-window  ;FIXME: why isn't this redundant?

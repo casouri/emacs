@@ -247,7 +247,7 @@ If FILE is nil, an in-memory database will be opened instead.  */)
   if (!NILP (file))
     {
       CHECK_STRING (file);
-      file = encode_string (Fexpand_file_name (file, Qnil));
+      file = ENCODE_FILE (Fexpand_file_name (file, Qnil));
       name = xstrdup (SSDATA (file));
     }
   else
@@ -400,7 +400,9 @@ Value is the number of affected rows.  */)
 
  exit:
   if (errmsg != NULL)
-    xsignal1 (Qerror, build_string (errmsg));
+    xsignal1 (ret == SQLITE_LOCKED || ret == SQLITE_BUSY?
+	      Qsqlite_locked_error: Qerror,
+	      build_string (errmsg));
 
   return retval;
 }
@@ -572,22 +574,59 @@ DEFUN ("sqlite-rollback", Fsqlite_rollback, Ssqlite_rollback, 1, 1, 0,
   return sqlite_exec (XSQLITE (db)->db, "rollback");
 }
 
+DEFUN ("sqlite-pragma", Fsqlite_pragma, Ssqlite_pragma, 2, 2, 0,
+       doc: /* Execute PRAGMA in DB.  */)
+  (Lisp_Object db, Lisp_Object pragma)
+{
+  check_sqlite (db, false);
+  CHECK_STRING (pragma);
+
+  return sqlite_exec (XSQLITE (db)->db,
+		      SSDATA (concat2 (build_string ("PRAGMA "), pragma)));
+}
+
 #ifdef HAVE_SQLITE3_LOAD_EXTENSION
 DEFUN ("sqlite-load-extension", Fsqlite_load_extension,
        Ssqlite_load_extension, 2, 2, 0,
        doc: /* Load an SQlite MODULE into DB.
 MODULE should be the name of an SQlite module's file, a
 shared library in the system-dependent format and having a
-system-dependent file-name extension.  */)
+system-dependent file-name extension.
+
+Only modules on Emacs' list of allowed modules can be loaded.  */)
   (Lisp_Object db, Lisp_Object module)
 {
   check_sqlite (db, false);
   CHECK_STRING (module);
-  Lisp_Object module_encoded = encode_string (Fexpand_file_name (module, Qnil));
 
-  sqlite3 *sdb = XSQLITE (db)->db;
-  int result = sqlite3_load_extension (sdb, SSDATA (module_encoded),
-				       NULL, NULL);
+  /* Add names of useful and free modules here.  */
+  const char *allowlist[3] = { "pcre", "csvtable", NULL };
+  char *name = SSDATA (Ffile_name_nondirectory (module));
+  /* Possibly skip past a common prefix.  */
+  const char *prefix = "libsqlite3_mod_";
+  if (!strncmp (name, prefix, strlen (prefix)))
+    name += strlen (prefix);
+
+  bool do_allow = false;
+  for (const char **allow = allowlist; *allow; allow++)
+    {
+      if (strlen (*allow) < strlen (name)
+	  && !strncmp (*allow, name, strlen (*allow))
+	  && (!strcmp (name + strlen (*allow), ".so")
+	      || !strcmp (name + strlen (*allow), ".DLL")))
+	{
+	  do_allow = true;
+	  break;
+	}
+    }
+
+  if (!do_allow)
+    xsignal (Qerror, build_string ("Module name not on allowlist"));
+
+  int result = sqlite3_load_extension
+		       (XSQLITE (db)->db,
+			SSDATA (ENCODE_FILE (Fexpand_file_name (module, Qnil))),
+			NULL, NULL);
   if (result ==  SQLITE_OK)
     return Qt;
   return Qnil;
@@ -687,6 +726,7 @@ syms_of_sqlite (void)
   defsubr (&Ssqlite_transaction);
   defsubr (&Ssqlite_commit);
   defsubr (&Ssqlite_rollback);
+  defsubr (&Ssqlite_pragma);
 #ifdef HAVE_SQLITE3_LOAD_EXTENSION
   defsubr (&Ssqlite_load_extension);
 #endif
@@ -698,8 +738,15 @@ syms_of_sqlite (void)
   DEFSYM (Qfull, "full");
 #endif
   defsubr (&Ssqlitep);
-  DEFSYM (Qsqlitep, "sqlitep");
   defsubr (&Ssqlite_available_p);
+
+  DEFSYM (Qsqlite_locked_error, "sqlite-locked-error");
+  Fput (Qsqlite_locked_error, Qerror_conditions,
+	Fpurecopy (list2 (Qsqlite_locked_error, Qerror)));
+  Fput (Qsqlite_locked_error, Qerror_message,
+	build_pure_c_string ("Database locked"));
+
+  DEFSYM (Qsqlitep, "sqlitep");
   DEFSYM (Qfalse, "false");
   DEFSYM (Qsqlite, "sqlite");
   DEFSYM (Qsqlite3, "sqlite3");

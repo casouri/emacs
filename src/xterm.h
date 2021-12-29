@@ -179,13 +179,24 @@ struct xi_scroll_valuator_t
   int horizontal;
 };
 
+struct xi_touch_point_t
+{
+  struct xi_touch_point_t *next;
+
+  int number;
+  double x, y;
+};
+
 struct xi_device_t
 {
   int device_id;
   int scroll_valuator_count;
   int grab;
+  bool master_p;
+  bool direct_p;
 
   struct xi_scroll_valuator_t *valuators;
+  struct xi_touch_point_t *touchpoints;
 };
 #endif
 
@@ -511,6 +522,7 @@ struct x_display_info
 #endif
 
 #ifdef HAVE_XKB
+  bool supports_xkb;
   XkbDescPtr xkb_desc;
 #endif
 };
@@ -1229,6 +1241,10 @@ extern void x_change_tool_bar_height (struct frame *, int);
 extern void x_implicitly_set_name (struct frame *, Lisp_Object, Lisp_Object);
 extern void x_set_scroll_bar_default_width (struct frame *);
 extern void x_set_scroll_bar_default_height (struct frame *);
+#ifdef USE_LUCID
+extern void xlw_monitor_dimensions_at_pos (Display *, Screen *, int, int,
+					   int *, int *, int *, int *);
+#endif
 
 /* Defined in xselect.c.  */
 

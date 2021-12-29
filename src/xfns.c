@@ -2916,7 +2916,7 @@ initial_set_up_x_back_buffer (struct frame *f)
   unblock_input ();
 }
 
-#if defined HAVE_XINPUT2 && !defined USE_GTK
+#if defined HAVE_XINPUT2
 static void
 setup_xi_event_mask (struct frame *f)
 {
@@ -2927,6 +2927,9 @@ setup_xi_event_mask (struct frame *f)
   mask.mask = m = alloca (l);
   memset (m, 0, l);
   mask.mask_len = l;
+
+  block_input ();
+#ifndef USE_GTK
   mask.deviceid = XIAllMasterDevices;
 
   XISetMask (m, XI_ButtonPress);
@@ -2936,21 +2939,42 @@ setup_xi_event_mask (struct frame *f)
   XISetMask (m, XI_Motion);
   XISetMask (m, XI_Enter);
   XISetMask (m, XI_Leave);
+#if 0
   XISetMask (m, XI_FocusIn);
   XISetMask (m, XI_FocusOut);
+#endif
   XISelectEvents (FRAME_X_DISPLAY (f),
 		  FRAME_X_WINDOW (f),
 		  &mask, 1);
 
   memset (m, 0, l);
+#endif /* !USE_GTK */
+
   mask.deviceid = XIAllDevices;
 
   XISetMask (m, XI_PropertyEvent);
   XISetMask (m, XI_HierarchyChanged);
   XISetMask (m, XI_DeviceChanged);
+#ifdef XI_TouchBegin
+  if (FRAME_DISPLAY_INFO (f)->xi2_version >= 2)
+    {
+      XISetMask (m, XI_TouchBegin);
+      XISetMask (m, XI_TouchUpdate);
+      XISetMask (m, XI_TouchEnd);
+#ifdef XI_GesturePinchBegin
+      if (FRAME_DISPLAY_INFO (f)->xi2_version >= 4)
+	{
+	  XISetMask (m, XI_GesturePinchBegin);
+	  XISetMask (m, XI_GesturePinchUpdate);
+	  XISetMask (m, XI_GesturePinchEnd);
+	}
+#endif
+    }
+#endif
   XISelectEvents (FRAME_X_DISPLAY (f),
 		  FRAME_X_WINDOW (f),
 		  &mask, 1);
+  unblock_input ();
 }
 #endif
 
@@ -3246,6 +3270,11 @@ x_window (struct frame *f)
       }
     unblock_input ();
   }
+#endif
+
+#ifdef HAVE_XINPUT2
+  if (FRAME_DISPLAY_INFO (f)->supports_xi2)
+    setup_xi_event_mask (f);
 #endif
 }
 
@@ -4485,6 +4514,27 @@ If omitted or nil, that stands for the selected frame's display.  */)
 		 VendorRelease (dpy));
 }
 
+DEFUN ("x-server-input-extension-version", Fx_server_input_extension_version,
+       Sx_server_input_extension_version, 0, 1, 0,
+       doc: /* Return the version of the X Input Extension supported by TERMINAL.
+The value is nil if TERMINAL's X server doesn't support the X Input
+Extension extension, or if Emacs doesn't support the version present
+on that server.  Otherwise, the return value is a list of the the
+major and minor versions of the X Input Extension extension running on
+that server.  */)
+  (Lisp_Object terminal)
+{
+#ifdef HAVE_XINPUT2
+  struct x_display_info *dpyinfo = check_x_display_info (terminal);
+
+  return (dpyinfo->supports_xi2
+	  ? list2i (2, dpyinfo->xi2_version)
+	  : Qnil);
+#else
+  return Qnil;
+#endif
+}
+
 DEFUN ("x-display-screens", Fx_display_screens, Sx_display_screens, 0, 1, 0,
        doc: /* Return the number of screens on the X server of display TERMINAL.
 The optional argument TERMINAL specifies which display to ask about.
@@ -4991,17 +5041,9 @@ x_get_monitor_attributes (struct x_display_info *dpyinfo)
   (void) dpy; /* Suppress unused variable warning.  */
 
 #ifdef HAVE_XRANDR
-  int xrr_event_base, xrr_error_base;
-  bool xrr_ok = false;
-  xrr_ok = XRRQueryExtension (dpy, &xrr_event_base, &xrr_error_base);
-  if (xrr_ok)
-    {
-      XRRQueryVersion (dpy, &dpyinfo->xrandr_major_version,
-		       &dpyinfo->xrandr_minor_version);
-      xrr_ok = ((dpyinfo->xrandr_major_version == 1
-		 && dpyinfo->xrandr_minor_version >= 2)
-		|| dpyinfo->xrandr_major_version > 1);
-    }
+  bool xrr_ok = ((dpyinfo->xrandr_major_version == 1
+		  && dpyinfo->xrandr_minor_version >= 2)
+		 || dpyinfo->xrandr_major_version > 1);
 
   if (xrr_ok)
     attributes_list = x_get_monitor_attributes_xrandr (dpyinfo);
@@ -5025,6 +5067,129 @@ x_get_monitor_attributes (struct x_display_info *dpyinfo)
 }
 
 #endif /* !USE_GTK */
+
+#ifdef USE_LUCID
+/* This is used by the Lucid menu widget, but it's defined here so we
+   can make use of a great deal of existing code.  */
+static void
+xlw_monitor_dimensions_at_pos_1 (struct x_display_info *dpyinfo,
+				 Screen *screen, int src_x, int src_y,
+				 int *x, int *y, int *width, int *height)
+{
+  Lisp_Object attrs, tem, val;
+#ifdef HAVE_XRANDR
+#if RANDR_MAJOR > 1 || (RANDR_MAJOR == 1 && RANDR_MINOR >= 5)
+  int num_rr_monitors;
+  XRRMonitorInfo *rr_monitors;
+
+  /* If RandR 1.5 or later is available, use that instead, as some
+     video drivers don't report correct dimensions via other versions
+     of RandR.  */
+  if (dpyinfo->xrandr_major_version > 1
+      || (dpyinfo->xrandr_major_version == 1
+	  && dpyinfo->xrandr_minor_version >= 5))
+    {
+      rr_monitors = XRRGetMonitors (dpyinfo->display,
+				    RootWindowOfScreen (screen),
+				    True, &num_rr_monitors);
+      if (!rr_monitors)
+	goto fallback;
+
+      for (int i = 0; i < num_rr_monitors; ++i)
+	{
+	  if (rr_monitors[i].x <= src_x
+	      && src_x < (rr_monitors[i].x
+			  + rr_monitors[i].width)
+	      && rr_monitors[i].y <= src_y
+	      && src_y < (rr_monitors[i].y
+			  + rr_monitors[i].height))
+	    {
+	      *x = rr_monitors[i].x;
+	      *y = rr_monitors[i].y;
+	      *width = rr_monitors[i].width;
+	      *height = rr_monitors[i].height;
+
+	      XRRFreeMonitors (rr_monitors);
+	      return;
+	    }
+	}
+      XRRFreeMonitors (rr_monitors);
+    }
+
+ fallback:
+#endif
+#endif
+
+  attrs = x_get_monitor_attributes (dpyinfo);
+
+  for (tem = attrs; CONSP (tem); tem = XCDR (tem))
+    {
+      int sx, sy, swidth, sheight;
+      val = assq_no_quit (Qgeometry, XCAR (tem));
+      if (!NILP (val))
+	{
+	  sx = XFIXNUM (XCAR (XCDR (val)));
+	  sy = XFIXNUM (XCAR (XCDR (XCDR (val))));
+	  swidth = XFIXNUM (XCAR (XCDR (XCDR (XCDR (val)))));
+	  sheight = XFIXNUM (XCAR (XCDR (XCDR (XCDR (XCDR (val))))));
+
+	  if (sx <= src_x && src_x < (sx + swidth)
+	      && sy <= src_y && src_y < (sy + swidth))
+	    {
+	      *x = sx;
+	      *y = sy;
+	      *width = swidth;
+	      *height = sheight;
+	      return;
+	    }
+	}
+    }
+
+  *x = 0;
+  *y = 0;
+  *width = WidthOfScreen (screen);
+  *height = HeightOfScreen (screen);
+}
+
+void
+xlw_monitor_dimensions_at_pos (Display *dpy, Screen *screen, int src_x,
+			       int src_y, int *x, int *y, int *width, int *height)
+{
+  struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
+  XRectangle rect, workarea, intersection;
+  int dim_x, dim_y, dim_w, dim_h;
+
+  if (!dpyinfo)
+    emacs_abort ();
+
+  block_input ();
+  xlw_monitor_dimensions_at_pos_1 (dpyinfo, screen, src_x, src_y,
+				   &dim_x, &dim_y, &dim_w, &dim_h);
+  rect.x = dim_x;
+  rect.y = dim_y;
+  rect.width = dim_w;
+  rect.height = dim_h;
+
+  if (!x_get_net_workarea (dpyinfo, &workarea))
+    memset (&workarea, 0, sizeof workarea);
+  unblock_input ();
+
+  if (!gui_intersect_rectangles (&rect, &workarea, &intersection))
+    {
+      *x = 0;
+      *y = 0;
+      *width = 0;
+      *height = 0;
+      return;
+    }
+
+  *x = intersection.x;
+  *y = intersection.y;
+  *width = intersection.width;
+  *height = intersection.height;
+}
+#endif
+
 
 DEFUN ("x-display-monitor-attributes-list", Fx_display_monitor_attributes_list,
        Sx_display_monitor_attributes_list,
@@ -5622,8 +5787,25 @@ The coordinates X and Y are interpreted in pixels relative to a position
   int yval = check_integer_range (y, INT_MIN, INT_MAX);
 
   block_input ();
-  XWarpPointer (FRAME_X_DISPLAY (f), None, DefaultRootWindow (FRAME_X_DISPLAY (f)),
-		0, 0, 0, 0, xval, yval);
+#ifdef HAVE_XINPUT2
+  int deviceid;
+
+  if (FRAME_DISPLAY_INFO (f)->supports_xi2)
+    {
+      XGrabServer (FRAME_X_DISPLAY (f));
+      if (XIGetClientPointer (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
+			      &deviceid))
+	{
+	  XIWarpPointer (FRAME_X_DISPLAY (f), deviceid, None,
+			 DefaultRootWindow (FRAME_X_DISPLAY (f)),
+			 0, 0, 0, 0, xval, yval);
+	}
+      XUngrabServer (FRAME_X_DISPLAY (f));
+    }
+  else
+#endif
+    XWarpPointer (FRAME_X_DISPLAY (f), None, DefaultRootWindow (FRAME_X_DISPLAY (f)),
+		  0, 0, 0, 0, xval, yval);
   unblock_input ();
 
   return Qnil;
@@ -7148,7 +7330,8 @@ Text larger than the specified size is clipped.  */)
   try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
   /* Calculate size of tooltip window.  */
   size = Fwindow_text_pixel_size (window, Qnil, Qnil, Qnil,
-				  make_fixnum (w->pixel_height), Qnil);
+				  make_fixnum (w->pixel_height), Qnil,
+				  Qnil);
   /* Add the frame's internal border to calculated size.  */
   width = XFIXNUM (Fcar (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
   height = XFIXNUM (Fcdr (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
@@ -7565,27 +7748,11 @@ present and mapped to the usual X keysyms.  */)
   struct frame *f = decode_window_system_frame (frame);
   Display *dpy = FRAME_X_DISPLAY (f);
   Lisp_Object have_keys;
-  int major, minor, op, event, error_code;
+
+  if (!FRAME_DISPLAY_INFO (f)->supports_xkb)
+    return Qlambda;
 
   block_input ();
-
-  /* Check library version in case we're dynamically linked.  */
-  major = XkbMajorVersion;
-  minor = XkbMinorVersion;
-  if (!XkbLibraryVersion (&major, &minor))
-    {
-      unblock_input ();
-      return Qlambda;
-    }
-
-  /* Check that the server supports XKB.  */
-  major = XkbMajorVersion;
-  minor = XkbMinorVersion;
-  if (!XkbQueryExtension (dpy, &op, &event, &error_code, &major, &minor))
-    {
-      unblock_input ();
-      return Qlambda;
-    }
 
   /* In this code we check that the keyboard has physical keys with names
      that start with BKSP (Backspace) and DELE (Delete), and that they
@@ -8154,6 +8321,7 @@ eliminated in future versions of Emacs.  */);
   defsubr (&Sx_server_max_request_size);
   defsubr (&Sx_server_vendor);
   defsubr (&Sx_server_version);
+  defsubr (&Sx_server_input_extension_version);
   defsubr (&Sx_display_pixel_width);
   defsubr (&Sx_display_pixel_height);
   defsubr (&Sx_display_mm_width);
