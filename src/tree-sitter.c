@@ -74,6 +74,29 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    return value of Fsymbol_value, car of a cons.
  */
 
+/*** Initialization */
+
+bool ts_initialized = false;
+
+static void
+*ts_calloc_wrapper (size_t n, size_t size)
+{
+  return xzalloc (n * size);
+}
+
+void
+ts_initialize ()
+{
+  if (!ts_initialized)
+    {
+      ts_set_allocator(&xmalloc,
+		       &ts_calloc_wrapper,
+		       &xrealloc,
+		       &xfree);
+      ts_initialized = true;
+    }
+}
+
 /*** Loading language library */
 
 /* Translates a symbol tree-sitter-<lang> to a C name
