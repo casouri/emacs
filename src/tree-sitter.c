@@ -72,14 +72,19 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    Placement of CHECK_xxx functions: call CHECK_xxx before using any
    unchecked Lisp values; these include argument of Lisp functions,
    return value of Fsymbol_value, car of a cons.
+
+   Initializing tree-sitter: there are two entry points to tree-sitter
+   functions: 'tree-sitter-parser-create' and
+   'tree-sitter-language-available-p'.  Therefore we only need to call
+   initialization function in those two functions.
  */
 
 /*** Initialization */
 
 bool ts_initialized = false;
 
-static void
-*ts_calloc_wrapper (size_t n, size_t size)
+static void *
+ts_calloc_wrapper (size_t n, size_t size)
 {
   return xzalloc (n * size);
 }
@@ -89,10 +94,8 @@ ts_initialize ()
 {
   if (!ts_initialized)
     {
-      ts_set_allocator(&xmalloc,
-		       &ts_calloc_wrapper,
-		       &xrealloc,
-		       &xfree);
+      ts_set_allocator (&xmalloc, &ts_calloc_wrapper,
+			&xrealloc, &xfree);
       ts_initialized = true;
     }
 }
@@ -140,7 +143,7 @@ ts_find_override_name
 
    If SIGNAL is true, signal an error when failed to load LANGUAGE; if
    false, return NULL when failed.  */
-TSLanguage*
+TSLanguage *
 ts_load_language (Lisp_Object language_symbol, bool signal)
 {
   Lisp_Object symbol_name = Fsymbol_name (language_symbol);
@@ -229,6 +232,7 @@ DEFUN ("tree-sitter-language-available-p",
   (Lisp_Object language)
 {
   CHECK_SYMBOL (language);
+  ts_initialize ();
   if (ts_load_language(language, false) == NULL)
     return Qnil;
   else
@@ -525,9 +529,11 @@ function provided by a tree-sitter language dynamic module, e.g.,
   if (NILP (buffer))
     buffer = Fcurrent_buffer ();
 
-  CHECK_BUFFER(buffer);
+  CHECK_BUFFER (buffer);
   CHECK_SYMBOL (language);
   ts_check_buffer_size (XBUFFER (buffer));
+
+  ts_initialize ();
 
   TSParser *parser = ts_parser_new ();
   TSLanguage *lang = ts_load_language (language, true);
