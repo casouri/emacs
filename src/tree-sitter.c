@@ -94,8 +94,7 @@ ts_initialize ()
 {
   if (!ts_initialized)
     {
-      ts_set_allocator (&xmalloc, &ts_calloc_wrapper,
-			&xrealloc, &xfree);
+      ts_set_allocator (xmalloc, ts_calloc_wrapper, xrealloc, xfree);
       ts_initialized = true;
     }
 }
@@ -262,9 +261,9 @@ ts_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 		  ptrdiff_t new_end_byte)
 {
   Lisp_Object parser_list = Fsymbol_value (Qtree_sitter_parser_list);
+  if (NILP (parser_list)) return;
   CHECK_CONS (parser_list);
-  for (;!NILP (parser_list);
-       parser_list = XCDR (parser_list))
+  for (;!NILP (parser_list); parser_list = XCDR (parser_list))
     {
       Lisp_Object lisp_parser = XCAR (parser_list);
       CHECK_TS_PARSER (lisp_parser);
