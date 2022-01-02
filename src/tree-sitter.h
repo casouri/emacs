@@ -44,13 +44,21 @@ struct Lisp_TS_Parser
      means some change is made in the buffer.  But others could set
      this field to true to force tree-sitter to re-parse.  */
   bool need_reparse;
-  /* This two positions record the byte position of the "visible
-     region" that tree-sitter sees.  Unlike markers, These two
-     positions do not change as the user inserts and deletes text
-     around them. Before re-parse, we move these positions to match
-     BUF_BEGV_BYTE and BUF_ZV_BYTE.  */
+  /* These two positions record the buffer byte position (count from
+     1) of the "visible region" that tree-sitter sees.  Unlike
+     markers, These two positions do not change as the user inserts
+     and deletes text around them. Before re-parse, we move these
+     positions to match BUF_BEGV_BYTE and BUF_ZV_BYTE.  Note that we
+     don't need to synchronize these positions when retrieving them in
+     a function that involves a node: if the node is not outdated,
+     these positions are synchronized.  */
   ptrdiff_t visible_beg;
   ptrdiff_t visible_end;
+  /* This counter is incremented every time a change is made to the
+     buffer in ts_record_change.  The node retrieved from this parser
+     inherits this timestamp.  This way we can make sure the node is
+     not outdated when we access its information.  */
+  ptrdiff_t timestamp;
 };
 
 /* A wrapper around a tree-sitter node.  */
@@ -63,6 +71,11 @@ struct Lisp_TS_Node
      tree. */
   Lisp_Object parser;
   TSNode node;
+  /* A node inherits its parser's timestamp at creation time.  The
+     parser's timestamp increments as the buffer changes.  This way we
+     can make sure the node is not outdated when we access its
+     information.  */
+  ptrdiff_t timestamp;
 };
 
 INLINE bool

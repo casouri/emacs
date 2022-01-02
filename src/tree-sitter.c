@@ -1,6 +1,6 @@
 /* Tree-sitter integration for GNU Emacs.
 
-Copyright (C) 2021 Free Software Foundation, Inc.
+Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -77,6 +77,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
    functions: 'tree-sitter-parser-create' and
    'tree-sitter-language-available-p'.  Therefore we only need to call
    initialization function in those two functions.
+
+   Tree-sitter offset (0-based) and buffer position (1-based):
+     tree-sitter offset + buffer position = buffer position
+     buffer position - buffer position = tree-sitter offset
  */
 
 /*** Initialization */
@@ -260,11 +264,12 @@ void
 ts_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 		  ptrdiff_t new_end_byte)
 {
-  Lisp_Object parser_list = Fsymbol_value (Qtree_sitter_parser_list);
-  if (NILP (parser_list)) return;
-  CHECK_CONS (parser_list);
-  for (;!NILP (parser_list); parser_list = XCDR (parser_list))
+  for (Lisp_Object parser_list =
+	 Fsymbol_value (Qtree_sitter_parser_list);
+       !NILP (parser_list);
+       parser_list = XCDR (parser_list))
     {
+      CHECK_CONS (parser_list);
       Lisp_Object lisp_parser = XCAR (parser_list);
       CHECK_TS_PARSER (lisp_parser);
       TSTree *tree = XTS_PARSER (lisp_parser)->tree;
@@ -293,6 +298,7 @@ ts_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 			  affected_new_end);
 	  XTS_PARSER (lisp_parser)->visible_end = affected_new_end;
 	  XTS_PARSER (lisp_parser)->need_reparse = true;
+	  XTS_PARSER (lisp_parser)->timestamp++;
 	}
     }
 }
@@ -358,7 +364,7 @@ ts_check_buffer_size (struct buffer *buffer)
   ptrdiff_t buffer_size =
     (BUF_Z (buffer) - BUF_BEG (buffer));
   if (buffer_size > UINT32_MAX)
-    xsignal2 (Qtree_sitter_size_error,
+    xsignal2 (Qtree_sitter_buffer_too_large,
 	      build_pure_c_string ("Buffer size too large, size:"),
 	      make_fixnum (buffer_size));
 }
@@ -479,6 +485,7 @@ make_ts_node (Lisp_Object parser, TSNode node)
     = ALLOCATE_PSEUDOVECTOR (struct Lisp_TS_Node, parser, PVEC_TS_NODE);
   lisp_node->parser = parser;
   lisp_node->node = node;
+  lisp_node->timestamp = XTS_PARSER (parser)->timestamp;
   return make_lisp_ptr (lisp_node, Lisp_Vectorlike);
 }
 
@@ -608,7 +615,7 @@ ts_check_range_argument (Lisp_Object ranges)
       EMACS_INT end = XFIXNUM (XCDR (range));
       /* TODO: Maybe we should check for point-min/max, too?  */
       if (!(last_point <= beg && beg <= end))
-	xsignal2 (Qtree_sitter_set_range_error,
+	xsignal2 (Qtree_sitter_range_invalid,
 		  build_pure_c_string
 		  ("RANGE is either overlapping or out-of-order"),
 		  ranges);
@@ -678,7 +685,7 @@ is nil, set PARSER to parse the whole buffer.  */)
     }
 
   if (!success)
-    xsignal2 (Qtree_sitter_set_range_error,
+    xsignal2 (Qtree_sitter_range_invalid,
 	      build_pure_c_string
 	      ("Something went wrong when setting ranges"),
 	      ranges);
@@ -721,15 +728,34 @@ nil.  */)
 
 /*** Node API  */
 
+/* Check that OBJ is a positive integer and signal an error if
+   otherwise. */
+static void
+ts_check_positive_integer (Lisp_Object obj)
+{
+  CHECK_INTEGER (obj);
+  if (XFIXNUM (obj) < 0)
+    xsignal1 (Qargs_out_of_range, obj);
+}
+
+static void
+ts_check_node (Lisp_Object obj)
+{
+  CHECK_TS_NODE (obj);
+  Lisp_Object lisp_parser = XTS_NODE (obj)->parser;
+  if (XTS_NODE (obj)->timestamp !=
+      XTS_PARSER (lisp_parser)->timestamp)
+    xsignal1 (Qtree_sitter_node_outdated, obj);
+}
+
 DEFUN ("tree-sitter-node-type",
        Ftree_sitter_node_type, Stree_sitter_node_type, 1, 1, 0,
        doc: /* Return the NODE's type as a string.
 If NODE is nil, return nil.  */)
   (Lisp_Object node)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   const char *type = ts_node_type (ts_node);
   return build_string (type);
@@ -741,17 +767,16 @@ DEFUN ("tree-sitter-node-start",
 If NODE is nil, return nil.  */)
   (Lisp_Object node)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   ptrdiff_t visible_beg =
     XTS_PARSER (XTS_NODE (node)->parser)->visible_beg;
-  uint32_t start_byte = ts_node_start_byte (ts_node);
+  uint32_t start_byte_offset = ts_node_start_byte (ts_node);
   struct buffer *buffer =
     XBUFFER (XTS_PARSER (XTS_NODE (node)->parser)->buffer);
   ptrdiff_t start_pos = buf_bytepos_to_charpos
-    (buffer, start_byte + visible_beg);
+    (buffer, start_byte_offset + visible_beg);
   return make_fixnum (start_pos);
 }
 
@@ -761,17 +786,16 @@ DEFUN ("tree-sitter-node-end",
 If NODE is nil, return nil.  */)
   (Lisp_Object node)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   ptrdiff_t visible_beg =
     XTS_PARSER (XTS_NODE (node)->parser)->visible_beg;
-  uint32_t end_byte = ts_node_end_byte (ts_node);
+  uint32_t end_byte_offset = ts_node_end_byte (ts_node);
   struct buffer *buffer =
     XBUFFER (XTS_PARSER (XTS_NODE (node)->parser)->buffer);
   ptrdiff_t end_pos = buf_bytepos_to_charpos
-    (buffer, end_byte + visible_beg);
+    (buffer, end_byte_offset + visible_beg);
   return make_fixnum (end_pos);
 }
 
@@ -781,9 +805,8 @@ DEFUN ("tree-sitter-node-string",
 If NODE is nil, return nil.  */)
   (Lisp_Object node)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   char *string = ts_node_string (ts_node);
   return make_string (string, strlen (string));
@@ -795,9 +818,8 @@ DEFUN ("tree-sitter-node-parent",
 Return nil if there isn't any.  If NODE is nil, return nil.  */)
   (Lisp_Object node)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   TSNode parent = ts_node_parent (ts_node);
 
@@ -815,11 +837,11 @@ Return nil if there isn't any.  If NAMED is non-nil, look for named
 child only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object n, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
-  CHECK_INTEGER (n);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
+  ts_check_positive_integer (n);
   EMACS_INT idx = XFIXNUM (n);
+  if (idx > UINT32_MAX) xsignal1 (Qargs_out_of_range, n);
   TSNode ts_node = XTS_NODE (node)->node;
   TSNode child;
   if (NILP (named))
@@ -855,9 +877,8 @@ A node "has error" if itself is a syntax error or contains any syntax
 errors.  */)
   (Lisp_Object node, Lisp_Object property)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   CHECK_SYMBOL (property);
   TSNode ts_node = XTS_NODE (node)->node;
   bool result;
@@ -872,8 +893,7 @@ errors.  */)
   else if (EQ (property, Qhas_changes))
     result = ts_node_has_changes (ts_node);
   else
-    // TODO: Is this a good error message?
-    signal_error ("Expecting one of four symbols, see docstring",
+    signal_error ("Expecting 'named, 'missing, 'extra, 'has-changes or 'has-error, got",
 		  property);
   return result ? Qt : Qnil;
 }
@@ -887,11 +907,11 @@ Return nil if there isn't any child or no field is found.
 If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object n)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
-  CHECK_INTEGER (n);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
+  ts_check_positive_integer (n);
   EMACS_INT idx = XFIXNUM (n);
+  if (idx > UINT32_MAX) xsignal1 (Qargs_out_of_range, n);
   TSNode ts_node = XTS_NODE (node)->node;
   const char *name
     = ts_node_field_name_for_child (ts_node, (uint32_t) idx);
@@ -911,9 +931,8 @@ If NAMED is non-nil, count named child only.  NAMED defaults to
 nil.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   uint32_t count;
   if (NILP (named))
@@ -930,9 +949,8 @@ DEFUN ("tree-sitter-node-child-by-field-name",
 Return nil if there isn't any.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object field_name)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   CHECK_STRING (field_name);
   char *name_str = SSDATA (field_name);
   TSNode ts_node = XTS_NODE (node)->node;
@@ -954,9 +972,8 @@ Return nil if there isn't any.  If NAMED is non-nil, look for named
 child only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   TSNode sibling;
   if (NILP (named))
@@ -979,9 +996,8 @@ Return nil if there isn't any.  If NAMED is non-nil, look for named
 child only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   TSNode ts_node = XTS_NODE (node)->node;
   TSNode sibling;
 
@@ -1008,16 +1024,15 @@ this function returns an immediate child, not the smallest
 (grand)child.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object pos, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
-  CHECK_INTEGER (pos);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
+  ts_check_positive_integer (pos);
 
   struct buffer *buf =
     XBUFFER (XTS_PARSER (XTS_NODE (node)->parser)->buffer);
   ptrdiff_t visible_beg =
     XTS_PARSER (XTS_NODE (node)->parser)->visible_beg;
-  ptrdiff_t byte_pos = buf_charpos_to_bytepos(buf, XFIXNUM (pos));
+  ptrdiff_t byte_pos = buf_charpos_to_bytepos (buf, XFIXNUM (pos));
 
   if (byte_pos < BUF_BEGV_BYTE (buf) || byte_pos > BUF_ZV_BYTE (buf))
     xsignal1 (Qargs_out_of_range, pos);
@@ -1025,15 +1040,16 @@ this function returns an immediate child, not the smallest
   TSNode ts_node = XTS_NODE (node)->node;
   TSNode child;
   if (NILP (named))
-    child = ts_node_first_child_for_byte (ts_node, byte_pos - visible_beg);
+    child = ts_node_first_child_for_byte
+      (ts_node, byte_pos - visible_beg);
   else
     child = ts_node_first_named_child_for_byte
       (ts_node, byte_pos - visible_beg);
 
-  if (ts_node_is_null(child))
+  if (ts_node_is_null (child))
     return Qnil;
 
-  return make_ts_node(XTS_NODE (node)->parser, child);
+  return make_ts_node (XTS_NODE (node)->parser, child);
 }
 
 DEFUN ("tree-sitter-node-descendant-for-range",
@@ -1046,9 +1062,8 @@ nil if there isn't any.  If NAMED is non-nil, look for named child
 only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
   (Lisp_Object node, Lisp_Object beg, Lisp_Object end, Lisp_Object named)
 {
-  if (NILP (node))
-    return Qnil;
-  CHECK_TS_NODE (node);
+  if (NILP (node)) return Qnil;
+  ts_check_node (node);
   CHECK_INTEGER (beg);
   CHECK_INTEGER (end);
 
@@ -1056,8 +1071,8 @@ only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
     XBUFFER (XTS_PARSER (XTS_NODE (node)->parser)->buffer);
   ptrdiff_t visible_beg =
     XTS_PARSER (XTS_NODE (node)->parser)->visible_beg;
-  ptrdiff_t byte_beg = buf_charpos_to_bytepos(buf, XFIXNUM (beg));
-  ptrdiff_t byte_end = buf_charpos_to_bytepos(buf, XFIXNUM (end));
+  ptrdiff_t byte_beg = buf_charpos_to_bytepos (buf, XFIXNUM (beg));
+  ptrdiff_t byte_end = buf_charpos_to_bytepos (buf, XFIXNUM (end));
 
   /* Checks for BUFFER_BEG <= BEG <= END <= BUFFER_END.  */
   if (!(BUF_BEGV_BYTE (buf) <= byte_beg
@@ -1074,10 +1089,10 @@ only.  NAMED defaults to nil.  If NODE is nil, return nil.  */)
     child = ts_node_named_descendant_for_byte_range
       (ts_node, byte_beg - visible_beg, byte_end - visible_beg);
 
-  if (ts_node_is_null(child))
+  if (ts_node_is_null (child))
     return Qnil;
 
-  return make_ts_node(XTS_NODE (node)->parser, child);
+  return make_ts_node (XTS_NODE (node)->parser, child);
 }
 
 DEFUN ("tree-sitter-node-eq",
@@ -1385,7 +1400,7 @@ else goes wrong.  */)
   (Lisp_Object node, Lisp_Object query,
    Lisp_Object beg, Lisp_Object end)
 {
-  CHECK_TS_NODE (node);
+  ts_check_node (node);
   if (!NILP (beg))
     CHECK_INTEGER (beg);
   if (!NILP (end))
@@ -1485,27 +1500,33 @@ syms_of_tree_sitter (void)
   DEFSYM (Qhas_changes, "has-changes");
   DEFSYM (Qhas_error, "has-error");
 
-  DEFSYM(Qtree_sitter_error, "tree-sitter-error");
+  DEFSYM (Qtree_sitter_error, "tree-sitter-error");
   DEFSYM (Qtree_sitter_query_error, "tree-sitter-query-error");
   DEFSYM (Qtree_sitter_parse_error, "tree-sitter-parse-error");
-  DEFSYM (Qtree_sitter_set_range_error, "tree-sitter-set-range-error");
-  DEFSYM (Qtree_sitter_size_error, "tree-sitter-size-error");
+  DEFSYM (Qtree_sitter_range_invalid, "tree-sitter-range-invalid");
+  DEFSYM (Qtree_sitter_buffer_too_large,
+	  "tree-sitter-buffer-too-large");
   DEFSYM (Qtree_sitter_load_language_error,
 	  "tree-sitter-load-language-error");
+  DEFSYM (Qtree_sitter_node_outdated,
+	  "tree-sitter-node-outdated");
 
   define_error (Qtree_sitter_error, "Generic tree-sitter error", Qerror);
   define_error (Qtree_sitter_query_error, "Query pattern is malformed",
 		Qtree_sitter_error);
-  /* Should be impossible, so don't need to document.  */
+  /* Should be impossible, no need to document this error.  */
   define_error (Qtree_sitter_parse_error, "Parse failed",
 		Qtree_sitter_error);
-  define_error (Qtree_sitter_set_range_error,
+  define_error (Qtree_sitter_range_invalid,
 		"RANGES are invalid, they have to be ordered and not overlapping",
 		Qtree_sitter_error);
-  define_error (Qtree_sitter_size_error, "Buffer too large (> 4GB)",
+  define_error (Qtree_sitter_buffer_too_large, "Buffer too large (> 4GB)",
 		Qtree_sitter_error);
   define_error (Qtree_sitter_load_language_error,
 		"Cannot load language definition",
+		Qtree_sitter_error);
+  define_error (Qtree_sitter_node_outdated,
+		"This node is outdated, please retrieve a new one",
 		Qtree_sitter_error);
 
   DEFSYM (Qtree_sitter_parser_list, "tree-sitter-parser-list");

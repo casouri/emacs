@@ -155,7 +155,7 @@ NAMED non-nil, only search for named node.  NAMED defaults to nil."
       (when (funcall pred child)
         (push child result))
       (setq child (tree-sitter-node-next-sibling child named)))
-    result))
+    (reverse result)))
 
 (defun tree-sitter-node-text (node)
   "Return the buffer (or string) content corresponding to NODE."
@@ -189,7 +189,7 @@ one argument, the parent node."
   "Return a list of NODE's children.
 If NAMED is non-nil, count named child only."
   (mapcar (lambda (idx)
-            (tree-sitter-node-child idx named))
+            (tree-sitter-node-child node idx named))
           (number-sequence
            0 (1- (tree-sitter-node-child-count node named)))))
 
@@ -258,35 +258,27 @@ captured node.  Capture names don't matter."
 
 ;;; Range API supplement
 
-(defvar tree-sitter-range-functions nil
-  "An alist of (LANGUAGE . FUNCTION) that sets ranges.
-font-locking and indenting code uses functions in this alist to
+(defvar-local tree-sitter-range-functions nil
+  "A list of range functions.
+Font-locking and indenting code uses functions in this alist to
 set correct ranges for a language parser before using it.
 
-
-LANGUAGE is a language symbol, FUNCTION is a function that sets
-ranges for the default parser for LANGUAGE.  It's signature
-should be
+The signature of each function should be
 
     (start end &rest _)
 
-where START and END marks the region that is about to be used.
-FUNCTION only need to (but not limited to) update ranges in that
-region.
+where START and END marks the region that is about to be used.  A
+range function only need to (but not limited to) update ranges in
+that region.
 
-The default parser is the one returned by
-
-    (tree-sitter-get-parser-create LANGUAGE)")
+Each function in the list is called in-order.")
 
 (defun tree-sitter-update-ranges (&optional start end)
   "Update the ranges for each language in the current buffer.
-Calls the range function in `tree-sitter-range-functions' from
-the front of the alist.
-
-If only need to update the ranges in a region, pass the START and
-END of that region."
-  (pcase-dolist (`(,_lang . ,function) tree-sitter-range-functions)
-    (funcall function (or start (point-min)) (or end (point-max)))))
+Calls each range functions in `tree-sitter-range-functions'
+in-order.  START and END are passed to each range function."
+  (dolist (range-fn tree-sitter-range-functions)
+    (funcall range-fn (or start (point-min)) (or end (point-max)))))
 
 ;;; Font-lock
 

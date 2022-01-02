@@ -30,9 +30,9 @@ To access the syntax tree of the text in a buffer, we need to first
 load a language definition and create a parser with it.  Next, we can
 query the parser for specific nodes in the syntax tree.  Then, we can
 access various information about the node, and we can pattern-match a
-node with a powerful syntax.  Finally, we introduce some handy
-utilities for developing packages using tree-sitter features.  The
-following sections explain how to do each of the tasks in detail.
+node with a powerful syntax.  Finally, we explain how to work with
+source files that mixes multiple languages.  The following sections
+explain how to do each of the tasks in detail.
 
 @menu
 * Language Definitions::     Loading tree-sitter language definitions.
@@ -390,11 +390,11 @@ node for the first time.  Similarly, when some change is made in the
 buffer, a parser doesn't re-parse immediately and only records some
 necessary information to later re-parse when necessary.
 
-@vindex tree-sitter-size-error
+@vindex tree-sitter-buffer-too-large
 When a parser do parse, it checks for the size of the buffer.
 Tree-sitter can only handle buffer no larger than about 4GB.  If the
-size exceeds that, Emacs signals @var{tree-sitter-size-error} with
-signal data being the buffer size.
+size exceeds that, Emacs signals @var{tree-sitter-buffer-too-large}
+with signal data being the buffer size.
 
 @vindex tree-sitter-parser-list
 Once a parser is created, Emacs automatically adds it to the
@@ -447,8 +447,16 @@ children, and therefore spans a larger piece of text.
 
 When a function cannot find a node, it returns nil.  And for the
 convenience for function chaining, all the functions that take a node
-as argument accept the node to be nil; in that case, the function just
-returns nil.
+as argument and returns a node accept the node to be nil; in that
+case, the function just returns nil.
+
+@vindex tree-sitter-node-outdated
+Nodes are not automatically updated when the associated buffer is
+modified.  In fact, there is no way to update a node once it is
+retrieved.  It is best to use a node and throw it away and not save
+it.  A node is @dfn{outdated} if the buffer has changed since the node
+is retrieved.  Using an outdated node throws
+@var{tree-sitter-node-outdated} error.
 
 @heading Retrieving node from syntax tree
 
@@ -568,10 +576,33 @@ for named child (@pxref{tree-sitter named node, named node}).
 
 @heading More convenient functions
 
-TODO: filter-child, parent-until and parent-while?
+@defun tree-sitter-filter-child node pred &optional named
+This function finds children of @var{node} that satisfies @var{pred}.
+
+Function @var{pred} takes the child node as the argument and should
+return non-nil to indicated keeping the child.  If @var{named}
+non-nil, this function only searches for named nodes."
+@end defun
+
+@defun tree-sitter-parent-until node pred
+This function repeatedly finds the parent of @var{node}, and returns
+the parent if it satisfies @var{pred} (which takes the parent as the
+argument).  If no parent satisfies @var{pred}, this function returns
+nil.
+@end defun
+
+@defun tree-sitter-parent-while
+This function repeatedly finds the parent of @var{node}, and keeps
+doing so as long as the parent satisfies @var{pred} (which takes the
+parent as the single argument).  I.e., this function returns the
+farthest parent that still satisfies @var{pred}.
+@end defun
 
 @node Accessing Node
 @section Accessing Node Information
+
+Before going further, make sure you have read the basic conventions
+about tree-sitter nodes in the previous node.
 
 @heading Basic information
 
@@ -1078,11 +1109,11 @@ is, in pseudo code:
 @end group
 @end example
 
-@vindex tree-sitter-set-range-error
+@vindex tree-sitter-range-invalid
 If @var{ranges} violates this constraint, or something else went
-wrong, this function signals a @var{tree-sitter-set-range-error}.
-The signal data contains a specific error message and the ranges we
-are trying to set.
+wrong, this function signals a @var{tree-sitter-range-invalid}.  The
+signal data contains a specific error message and the ranges we are
+trying to set.
 
 This function can also be used for disabling ranges.  If @var{ranges}
 is nil, the parser is set to parse the whole buffer.
@@ -1146,6 +1177,38 @@ this function queries.
 
 Like other query functions, this function raises an
 @var{tree-sitter-query-error} if @var{pattern} is malformed.
+@end defun
+
+@defun tree-sitter-language-at point
+This function tries to figure out which language is responsible for
+the text at @var{point}.  It goes over each parser in
+@var{tree-sitter-parser-list} and see if that parser's range covers
+@var{point}.
+@end defun
+
+@defvar tree-sitter-range-functions
+A list of range functions.  Font-locking and indenting code uses
+functions in this alist to set correct ranges for a language parser
+before using it.
+
+The signature of each function should be
+
+@example
+(@var{start} @var{end} &rest @var{_})
+@end example
+
+where @var{start} and @var{end} marks the region that is about to be
+used.  A range function only need to (but not limited to) update
+ranges in that region.
+
+Each function in the list is called in-order.
+@end defvar
+
+@defun tree-sitter-update-ranges &optional start end
+This function is used by font-lock and indent to update ranges before
+using any parser.  Each range function in
+@var{tree-sitter-range-functions} is called in-order.  Arguments
+@var{start} and @var{end} are passed to each range function.
 @end defun
 
 @heading An example
