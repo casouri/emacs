@@ -1,5 +1,5 @@
 /* Haiku window system support
-   Copyright (C) 2021 Free Software Foundation, Inc.
+   Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1510,20 +1510,24 @@ haiku_set_inhibit_double_buffering (struct frame *f,
 				    Lisp_Object old_value)
 {
   block_input ();
+#ifndef USE_BE_CAIRO
   if (FRAME_HAIKU_WINDOW (f))
     {
       if (NILP (new_value))
 	{
+#endif
 	  EmacsView_set_up_double_buffering (FRAME_HAIKU_VIEW (f));
 	  if (!NILP (old_value))
 	    {
 	      SET_FRAME_GARBAGED (f);
 	      expose_frame (f, 0, 0, 0, 0);
 	    }
+#ifndef USE_BE_CAIRO
 	}
       else
 	EmacsView_disable_double_buffering (FRAME_HAIKU_VIEW (f));
     }
+#endif
   unblock_input ();
 }
 
@@ -2232,7 +2236,7 @@ Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry fie
 				   FRAME_HAIKU_WINDOW (f),
 				   !NILP (save_text) ? SSDATA (ENCODE_UTF_8 (save_text)) : NULL,
 				   SSDATA (ENCODE_UTF_8 (prompt)),
-				   block_input, unblock_input);
+				   block_input, unblock_input, maybe_quit);
 
   unbind_to (idx, Qnil);
 

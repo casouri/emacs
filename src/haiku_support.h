@@ -1,5 +1,5 @@
 /* Haiku window system support.  Hey Emacs, this is -*- C++ -*-
-   Copyright (C) 2021 Free Software Foundation, Inc.
+   Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -740,7 +740,8 @@ extern "C"
 			int dir_only_p,	void *window, const char *save_text,
 			const char *prompt,
 			void (*block_input_function) (void),
-			void (*unblock_input_function) (void));
+			void (*unblock_input_function) (void),
+			void (*maybe_quit_function) (void));
 
   extern void
   record_c_unwind_protect_from_cxx (void (*) (void *), void *);
@@ -818,6 +819,9 @@ extern "C"
 
   extern void
   BWindow_set_size_alignment (void *window, int align_width, int align_height);
+
+  extern void
+  BWindow_sync (void *window);
 
 #ifdef __cplusplus
   extern void *

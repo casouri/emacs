@@ -1,5 +1,5 @@
 /* Haiku window system support
-   Copyright (C) 2021 Free Software Foundation, Inc.
+   Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -346,7 +346,7 @@ haiku_frame_raise_lower (struct frame *f, bool raise_p)
     {
       block_input ();
       BWindow_activate (FRAME_HAIKU_WINDOW (f));
-      flush_frame (f);
+      BWindow_sync (FRAME_HAIKU_WINDOW (f));
       unblock_input ();
     }
 }
@@ -2693,10 +2693,23 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	case KEY_DOWN:
 	  {
 	    struct haiku_key_event *b = buf;
+	    Mouse_HLInfo *hlinfo = &x_display_list->mouse_highlight;
 	    struct frame *f = haiku_window_to_frame (b->window);
 	    int non_ascii_p;
 	    if (!f)
 	      continue;
+
+	    /* If mouse-highlight is an integer, input clears out
+	       mouse highlighting.  */
+	    if (!hlinfo->mouse_face_hidden && FIXNUMP (Vmouse_highlight)
+		&& (f == 0
+		    || !EQ (f->tool_bar_window, hlinfo->mouse_face_window)
+		    || !EQ (f->tab_bar_window, hlinfo->mouse_face_window)))
+	      {
+		clear_mouse_face (hlinfo);
+		hlinfo->mouse_face_hidden = true;
+		need_flush = 1;
+	      }
 
 	    inev.code = b->unraw_mb_char;
 
@@ -2738,6 +2751,7 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	  {
 	    struct haiku_mouse_motion_event *b = buf;
 	    struct frame *f = haiku_window_to_frame (b->window);
+	    Mouse_HLInfo *hlinfo = &x_display_list->mouse_highlight;
 
 	    if (!f)
 	      continue;
@@ -2748,6 +2762,13 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    x_display_list->last_mouse_movement_time = time (NULL);
 	    button_or_motion_p = 1;
 
+	    if (hlinfo->mouse_face_hidden)
+	      {
+		hlinfo->mouse_face_hidden = false;
+		clear_mouse_face (hlinfo);
+		need_flush = 1;
+	      }
+
 	    if (b->just_exited_p)
 	      {
 		Mouse_HLInfo *hlinfo = MOUSE_HL_INFO (f);
@@ -2757,6 +2778,8 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		       certainly no longer on any text in the frame.  */
 		    clear_mouse_face (hlinfo);
 		    hlinfo->mouse_face_mouse_frame = 0;
+
+		    need_flush = 1;
 		  }
 
 		haiku_new_focus_frame (x_display_list->focused_frame);
@@ -2775,6 +2798,27 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		previous_help_echo_string = help_echo_string;
 		help_echo_string = Qnil;
 
+		/* A LeaveNotify event (well, the closest equivalent on Haiku, which
+		   is a B_MOUSE_MOVED event with `transit' set to B_EXITED_VIEW) might
+		   be sent out-of-order with regards to motion events from other
+		   windows, such as when the mouse pointer rapidly moves from an
+		   undecorated child frame to its parent.  This can cause a failure to
+		   clear the mouse face on the former if an event for the latter is
+		   read by Emacs first and ends up showing the mouse face there.
+
+		   In case the `movement_locker' (also see the comment
+		   there) doesn't take care of the problem, work
+		   around it by clearing the mouse face now, if it is
+		   currently shown on a different frame.  */
+
+		if (hlinfo->mouse_face_hidden
+		    || (f != hlinfo->mouse_face_mouse_frame
+			&& !NILP (hlinfo->mouse_face_window)))
+		  {
+		    hlinfo->mouse_face_hidden = 0;
+		    clear_mouse_face (hlinfo);
+		  }
+
 		if (f != dpyinfo->last_mouse_glyph_frame
 		    || b->x < r.x || b->x >= r.x + r.width
 		    || b->y < r.y || b->y >= r.y + r.height)
@@ -2787,12 +2831,6 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		    dpyinfo->last_mouse_glyph_frame = f;
 		    gen_help_event (help_echo_string, frame, help_echo_window,
 				    help_echo_object, help_echo_pos);
-		  }
-
-		if (MOUSE_HL_INFO (f)->mouse_face_hidden)
-		  {
-		    MOUSE_HL_INFO (f)->mouse_face_hidden = 0;
-		    clear_mouse_face (MOUSE_HL_INFO (f));
 		  }
 
 		if (!NILP (Vmouse_autoselect_window))

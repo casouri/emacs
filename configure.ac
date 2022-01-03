@@ -4,7 +4,7 @@ dnl	autoconf
 dnl in the directory containing this script.
 dnl If you changed any AC_DEFINES, also run autoheader.
 dnl
-dnl Copyright (C) 1994-1996, 1999-2021 Free Software Foundation, Inc.
+dnl Copyright (C) 1994-1996, 1999-2022 Free Software Foundation, Inc.
 dnl
 dnl  This file is part of GNU Emacs.
 dnl
@@ -3437,7 +3437,7 @@ if test "${HAVE_XIM}" != "no"; then
 XrmDatabase db;
 char *res_name;
 char *res_class;
-XIMProc  callback;
+XIDProc *callback;
 XPointer *client_data;
 #ifndef __GNUC__
 /* If we're not using GCC, it's probably not XFree86, and this is
@@ -5812,7 +5812,7 @@ fi
 
 version=$PACKAGE_VERSION
 
-copyright="Copyright (C) 2021 Free Software Foundation, Inc."
+copyright="Copyright (C) 2022 Free Software Foundation, Inc."
 AC_DEFINE_UNQUOTED(COPYRIGHT, ["$copyright"],
   [Short copyright string for this version of Emacs.])
 AC_SUBST(copyright)

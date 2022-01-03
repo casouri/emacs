@@ -1,6 +1,6 @@
 /* Display generation from window structure and buffer text.
 
-Copyright (C) 1985-1988, 1993-1995, 1997-2021 Free Software Foundation,
+Copyright (C) 1985-1988, 1993-1995, 1997-2022 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -6829,6 +6829,27 @@ iterate_out_of_display_property (struct it *it)
     it->current.string_pos = it->position;
 }
 
+/* Restore the IT->face_box_p flag, since it could have been
+   overwritten by the face of the object that we just finished
+   displaying.  Also, set the IT->start_of_box_run_p flag if the
+   change in faces requires that.  */
+static void
+restore_face_box_flags (struct it *it, int prev_face_id)
+{
+  struct face *face = FACE_FROM_ID_OR_NULL (it->f, it->face_id);
+
+  if (face)
+    {
+      struct face *prev_face = FACE_FROM_ID_OR_NULL (it->f, prev_face_id);
+
+      if (!(it->start_of_box_run_p && prev_face && prev_face->box))
+	it->start_of_box_run_p = (face->box != FACE_NO_BOX
+				  && (prev_face == NULL
+				      || prev_face->box == FACE_NO_BOX));
+      it->face_box_p = face->box != FACE_NO_BOX;
+    }
+}
+
 /* Restore IT's settings from IT->stack.  Called, for example, when no
    more overlay strings must be processed, and we return to delivering
    display elements from a buffer, or when the end of a string from a
@@ -6841,6 +6862,7 @@ pop_it (struct it *it)
   struct iterator_stack_entry *p;
   bool from_display_prop = it->from_disp_prop_p;
   ptrdiff_t prev_pos = IT_CHARPOS (*it);
+  int prev_face_id = it->face_id;
 
   eassert (it->sp > 0);
   --it->sp;
@@ -6872,25 +6894,13 @@ pop_it (struct it *it)
       break;
     case GET_FROM_BUFFER:
       {
-	struct face *face = FACE_FROM_ID_OR_NULL (it->f, it->face_id);
-
-	/* Restore the face_box_p flag, since it could have been
-	   overwritten by the face of the object that we just finished
-	   displaying.  */
-	if (face)
-	  it->face_box_p = face->box != FACE_NO_BOX;
+	restore_face_box_flags (it, prev_face_id);
 	it->object = it->w->contents;
       }
       break;
     case GET_FROM_STRING:
       {
-	struct face *face = FACE_FROM_ID_OR_NULL (it->f, it->face_id);
-
-	/* Restore the face_box_p flag, since it could have been
-	   overwritten by the face of the object that we just finished
-	   displaying.  */
-	if (face)
-	  it->face_box_p = face->box != FACE_NO_BOX;
+	restore_face_box_flags (it, prev_face_id);
 	it->object = it->string;
       }
       break;
@@ -13863,11 +13873,15 @@ tab_bar_height (struct frame *f, int *n_rows, bool pixelwise)
                     0, 0, 0, STRING_MULTIBYTE (f->desired_tab_bar_string));
   it.paragraph_embedding = L2R;
 
+  clear_glyph_row (temp_row);
   while (!ITERATOR_AT_END_P (&it))
     {
-      clear_glyph_row (temp_row);
       it.glyph_row = temp_row;
       display_tab_bar_line (&it, -1);
+      /* If the tab-bar string includes newlines, get past it, because
+	 display_tab_bar_line doesn't.  */
+      if (ITERATOR_AT_END_OF_LINE_P (&it))
+	set_iterator_to_next (&it, true);
     }
   clear_glyph_row (temp_row);
 
@@ -13993,6 +14007,10 @@ redisplay_tab_bar (struct frame *f)
 	      extra -= h;
 	    }
 	  display_tab_bar_line (&it, height + h);
+	  /* If the tab-bar string includes newlines, get past it,
+	     because display_tab_bar_line doesn't.  */
+	  if (ITERATOR_AT_END_OF_LINE_P (&it))
+	    set_iterator_to_next (&it, true);
 	}
     }
   else

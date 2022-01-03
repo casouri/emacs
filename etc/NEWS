@@ -1,6 +1,6 @@
 GNU Emacs NEWS -- history of user-visible changes.
 
-Copyright (C) 2021 Free Software Foundation, Inc.
+Copyright (C) 2021-2022 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 Please send Emacs bug reports to 'bug-gnu-emacs@gnu.org'.
@@ -70,6 +70,11 @@ are installed, and configure Emacs with the option '--with-pgtk'.
 Unlike the default X and GTK build, the resulting Emacs binary will
 work on any underlying window system supported by GDK, such as
 Wayland and Broadway.
+
+---
+** The docstrings of preloaded files are not in 'etc/DOC' any more.
+Instead, they're fetched as needed from the corresponding '.elc' file,
+as was already the case for all the non-preloaded files.
 
 
 * Startup Changes in Emacs 29.1
@@ -174,6 +179,9 @@ tests so that they all have unique names.
 When environment variable 'EMACS_TEST_JUNIT_REPORT' is set, ERT
 generates a JUnit test report under this file name.  This is useful
 for Emacs integration into CI/CD test environments.
+
+*** Unbound test symbols now signal an 'ert-test-unbound' error.
+This affects the 'ert-select-tests' function and its callers.
 
 ** Emoji
 
@@ -884,6 +892,9 @@ The input must be encoded text.
 * Lisp Changes in Emacs 29.1
 
 +++
+** New variable 'lisp-directory' holds the directory of Emacs's own Lisp files.
+
++++
 ** New facility for handling session state: 'multisession-value'.
 This can be used as a convenient way to store (simple) application
 state, and 'M-x list-multisession-values' allows users to list
@@ -973,6 +984,11 @@ syntax.
 *** New function 'key-parse'.
 This is like 'kbd', but only returns vectors instead of a mix of
 vectors and strings.
+
++++
+*** New ':type' for 'defcustom' for keys.
+The new 'key' type can be used for options that should be a valid key
+according to 'key-valid-p'.  The type 'key-sequence' is now obsolete.
 
 +++
 ** New substitution in docstrings and 'substitute-command-keys'.

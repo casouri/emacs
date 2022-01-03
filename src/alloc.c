@@ -1,6 +1,6 @@
 /* Storage allocation and gc for GNU Emacs Lisp interpreter.
 
-Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2021 Free Software
+Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2022 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -3901,6 +3901,7 @@ count as reachable for the purpose of deciding whether to run
 FUNCTION.  FUNCTION will be run once per finalizer object.  */)
   (Lisp_Object function)
 {
+  CHECK_TYPE (FUNCTIONP (function), Qfunctionp, function);
   struct Lisp_Finalizer *finalizer
     = ALLOCATE_PSEUDOVECTOR (struct Lisp_Finalizer, function, PVEC_FINALIZER);
   finalizer->function = function;

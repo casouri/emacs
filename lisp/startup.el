@@ -1,6 +1,6 @@
 ;;; startup.el --- process Emacs shell arguments  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-2021 Free Software Foundation,
+;; Copyright (C) 1985-1986, 1992, 1994-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -1056,6 +1056,9 @@ the `--debug-init' option to view a complete error backtrace."
     (when debug-on-error-should-be-set
       (setq debug-on-error debug-on-error-from-init-file))))
 
+(defvar lisp-directory nil
+  "Directory where Emacs's own *.el and *.elc Lisp files are installed.")
+
 (defun command-line ()
   "A subroutine of `normal-top-level'.
 Amongst another things, it parses the command-line arguments."
@@ -1087,8 +1090,7 @@ Amongst another things, it parses the command-line arguments."
   (let ((simple-file-name
 	 ;; Look for simple.el or simple.elc and use their directory
 	 ;; as the place where all Lisp files live.
-	 (locate-file "simple" load-path (get-load-suffixes)))
-	lisp-dir)
+	 (locate-file "simple" load-path (get-load-suffixes))))
     ;; Don't abort if simple.el cannot be found, but print a warning.
     ;; Although in most usage we are going to cryptically abort a moment
     ;; later anyway, due to missing required bidi data files (eg bug#13430).
@@ -1104,12 +1106,13 @@ please check its value")
 	  (unless (file-readable-p lispdir)
 	    (princ (format "Lisp directory %s not readable?" lispdir))
 	    (terpri)))
-      (setq lisp-dir (file-truename (file-name-directory simple-file-name)))
+      (setq lisp-directory
+            (file-truename (file-name-directory simple-file-name)))
       (setq load-history
 	    (mapcar (lambda (elt)
 		      (if (and (stringp (car elt))
 			       (not (file-name-absolute-p (car elt))))
-			  (cons (concat lisp-dir
+			  (cons (concat lisp-directory
 					(car elt))
 				(cdr elt))
 			elt))

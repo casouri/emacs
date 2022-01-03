@@ -1,6 +1,6 @@
 /* Functions for the pure Gtk+-3.
 
-Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2020 Free Software
+Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2020, 2022 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -3440,6 +3440,7 @@ Text larger than the specified size is clipped.  */)
   /* Add the frame's internal border to calculated size.  */
   width = XFIXNUM (Fcar (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
   height = XFIXNUM (Fcdr (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
+  width += FRAME_COLUMN_WIDTH (tip_f);
 
   /* Calculate position of tooltip frame.  */
   compute_tip_xy (tip_f, parms, dx, dy, width, height, &root_x, &root_y);

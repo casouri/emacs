@@ -1,6 +1,6 @@
 ;;; window.el --- GNU Emacs window commands aside from those written in C  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985, 1989, 1992-1994, 2000-2021 Free Software
+;; Copyright (C) 1985, 1989, 1992-1994, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -7476,7 +7476,7 @@ ALIST.  See `display-buffer' for details."
 
 (defcustom display-comint-buffer-action 'display-buffer-same-window
   "The action to display a comint buffer."
-  :type 'display-buffer--action-function-custom-type
+  :type display-buffer--action-function-custom-type
   :risky t
   :version "29.1"
   :group 'windows

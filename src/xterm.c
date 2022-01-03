@@ -1,6 +1,6 @@
 /* X Communication module for terminals which understand the X protocol.
 
-Copyright (C) 1989, 1993-2021 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -10011,8 +10011,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #ifdef HAVE_XWIDGETS
 	      if (xwidget_view)
 		{
-		  *finish = X_EVENT_DROP;
-		  xwidget_motion_or_crossing (xwidget_view, event);
+		  /* Don't send an enter event to the xwidget if the
+		     first button is pressed, to avoid it releasing
+		     the passive grab.  I don't know why that happens,
+		     but this workaround makes dragging to select text
+		     work again.  */
+		  if (!(enter->buttons.mask_len
+			&& XIMaskIsSet (enter->buttons.mask, 1)))
+		    xwidget_motion_or_crossing (xwidget_view, event);
 
 		  goto XI_OTHER;
 		}
@@ -10167,12 +10173,12 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			  val->emacs_value += delta;
 
 			  if (mwheel_coalesce_scroll_events
-			      && (fabs (val->emacs_value) < 1)
-			      && (fabs (delta) > 0))
+			      && (fabs (val->emacs_value) < 1))
 			    continue;
 
 			  bool s = signbit (val->emacs_value);
-			  inev.ie.kind = (fabs (delta) > 0
+			  inev.ie.kind = ((mwheel_coalesce_scroll_events
+					   || fabs (delta) > 0)
 					  ? (val->horizontal
 					     ? HORIZ_WHEEL_EVENT
 					     : WHEEL_EVENT)
@@ -10262,7 +10268,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 						&& xv_total_y == 0.0));
 		  else
 		    xwidget_motion_notify (xv, xev->event_x, xev->event_y,
-					   state, xev->time);
+					   xev->root_x, xev->root_y, state,
+					   xev->time);
 
 		  goto XI_OTHER;
 		}
@@ -11099,12 +11106,25 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  case XI_GesturePinchBegin:
 	  case XI_GesturePinchUpdate:
 	    {
+	      x_display_set_last_user_time (dpyinfo, xi_event->time);
+
 #ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
 	      XIGesturePinchEvent *pev = (XIGesturePinchEvent *) xi_event;
 	      struct xi_device_t *device = xi_device_from_id (dpyinfo, pev->deviceid);
 
 	      if (!device || !device->master_p)
 		goto XI_OTHER;
+
+#ifdef HAVE_XWIDGETS
+	      struct xwidget_view *xvw = xwidget_view_from_window (pev->event);
+
+	      if (xvw)
+		{
+		  *finish = X_EVENT_DROP;
+		  xwidget_pinch (xvw, pev);
+		  goto XI_OTHER;
+		}
+#endif
 
 	      any = x_any_window_to_frame (dpyinfo, pev->event);
 	      if (any)
@@ -11127,8 +11147,19 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      goto XI_OTHER;
 	    }
 	  case XI_GesturePinchEnd:
-	    *finish = X_EVENT_DROP;
-	    goto XI_OTHER;
+	    {
+	      x_display_set_last_user_time (dpyinfo, xi_event->time);
+
+#if defined HAVE_XWIDGETS && HAVE_USABLE_XI_GESTURE_PINCH_EVENT
+	      XIGesturePinchEvent *pev = (XIGesturePinchEvent *) xi_event;
+	      struct xwidget_view *xvw = xwidget_view_from_window (pev->event);
+
+	      if (xvw)
+		xwidget_pinch (xvw, pev);
+#endif
+	      *finish = X_EVENT_DROP;
+	      goto XI_OTHER;
+	    }
 #endif
 	  default:
 	    goto XI_OTHER;

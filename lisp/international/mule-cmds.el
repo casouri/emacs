@@ -1,6 +1,6 @@
 ;;; mule-cmds.el --- commands for multilingual environment  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -2958,8 +2958,14 @@ See also the documentation of `get-char-code-property' and
     (or (stringp table)
 	(error "Not a char-table nor a file name: %s" table)))
   (if (stringp table) (setq table (purecopy table)))
-  (setf (alist-get name char-code-property-alist) table)
-  (put name 'char-code-property-documentation (purecopy docstring)))
+  (if (and (stringp table)
+           (char-table-p (alist-get name char-code-property-alist)))
+      ;; The table is already setup and we're apparently trying to
+      ;; undo that, probably because `charprop.el' is being re-loaded.
+      ;; Just skip it, in order to work around a recursive load (bug#52945).
+      nil
+    (setf (alist-get name char-code-property-alist) table)
+    (put name 'char-code-property-documentation (purecopy docstring))))
 
 (defvar char-code-property-table
   (make-char-table 'char-code-property-table)

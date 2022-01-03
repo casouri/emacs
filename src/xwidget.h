@@ -1,6 +1,6 @@
 /* Support for embedding graphical components in a buffer.
 
-Copyright (C) 2011-2021 Free Software Foundation, Inc.
+Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -41,6 +41,10 @@ struct window;
 #elif defined (NS_IMPL_COCOA) && defined (__OBJC__)
 #import <AppKit/NSView.h>
 #import "nsxwidget.h"
+#endif
+
+#ifdef HAVE_XINPUT2
+#include <X11/extensions/XInput2.h>
 #endif
 
 struct xwidget
@@ -210,9 +214,12 @@ extern void xwidget_motion_or_crossing (struct xwidget_view *,
 					const XEvent *);
 #ifdef HAVE_XINPUT2
 extern void xwidget_motion_notify (struct xwidget_view *, double,
-				   double, uint, Time);
+				   double, double, double, uint, Time);
 extern void xwidget_scroll (struct xwidget_view *, double, double,
                             double, double, uint, Time, bool);
+#ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
+extern void xwidget_pinch (struct xwidget_view *, XIGesturePinchEvent *);
+#endif
 #endif
 #endif
 #else

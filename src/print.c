@@ -1,6 +1,6 @@
 /* Lisp object printing and output streams.
 
-Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2021 Free Software
+Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2022 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -1528,16 +1528,21 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
     case PVEC_XWIDGET:
 #ifdef HAVE_XWIDGETS
       {
+	if (NILP (XXWIDGET (obj)->buffer))
+	  print_c_string ("#<killed xwidget>", printcharfun);
+	else
+	  {
 #ifdef USE_GTK
-	int len = sprintf (buf, "#<xwidget %u %p>",
-			   XXWIDGET (obj)->xwidget_id,
-			   XXWIDGET (obj)->widget_osr);
+	    int len = sprintf (buf, "#<xwidget %u %p>",
+			       XXWIDGET (obj)->xwidget_id,
+			       XXWIDGET (obj)->widget_osr);
 #else
-	int len = sprintf (buf, "#<xwidget %u %p>",
-			   XXWIDGET (obj)->xwidget_id,
-			   XXWIDGET (obj)->xwWidget);
+	    int len = sprintf (buf, "#<xwidget %u %p>",
+			       XXWIDGET (obj)->xwidget_id,
+			       XXWIDGET (obj)->xwWidget);
 #endif
-	strout (buf, len, len, printcharfun);
+	    strout (buf, len, len, printcharfun);
+	  }
 	break;
       }
 #else
