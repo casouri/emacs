@@ -1828,7 +1828,7 @@ If SYNTACTIC-KEYWORDS is non-nil, it means these keywords are used for
 		  (0
 		   (if (memq (get-text-property (match-beginning 0) 'face)
 			     '(font-lock-string-face font-lock-doc-face
-			                             font-lock-comment-face))
+			       font-lock-comment-face))
 		       (list 'face font-lock-warning-face
                              'help-echo "Looks like a toplevel defun: escape the parenthesis"))
 		   prepend)))))

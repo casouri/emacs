@@ -280,7 +280,6 @@
 ;; TODO
 ;; - Functions in tree-sitter.el
 ;; - tree-sitter-load-name-override-list
-;; - query predicates
 
 (provide 'tree-sitter-tests)
 ;;; tree-sitter-tests.el ends here
