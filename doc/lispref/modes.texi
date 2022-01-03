@@ -3716,7 +3716,7 @@ reasonably fast.
 
 Besides simple syntactic font lock and search-based font lock, Emacs
 also provides complete syntactic font lock with the help of a parser,
-currently provided by the tree-sitter library (@xref{Parsing Program
+currently provided by the tree-sitter library (@pxref{Parsing Program
 Source}).  Because it is an optional feature, parser-based font lock
 is less integrated with Emacs.  Most variables introduced in previous
 sections only apply to search-based font lock, except for
@@ -3765,31 +3765,30 @@ and let Emacs automatically populate this variable.
 @end defvar
 
 @defvar tree-sitter-font-lock-defaults
-Defaults for tree-sitter font Lock.  A list of
+This variable stores defaults for tree-sitter font Lock.  It is a list
+of
 
 @example
 (@var{default} @var{:keyword} @var{value}...)
 @end example
 
 A @var{default} may be a symbol or a list of symbols (for different
-levels of fontification).  The symbol(s) can be of a variable or a
+levels of fontification).  The symbol(s) can be a variable or a
 function.  If a symbol is both a variable and a function, it is used
 as a function.  Different levels of fontification can be controlled by
 @var{font-lock-maximum-decoration}.
 
 The symbol(s) in @var{default} should contain or return a
-@var{setting} as explained in @var{tree-sitter-font-lock-settings}.
+@var{setting} as described in @var{tree-sitter-font-lock-settings}.
 
 The rest @var{keyword}s and @var{value}s are additional settings that
-could be used to alter fontification behavior.  Currently there aren't
-any.
-
-Multi-language major modes should provide a range function for each
-language it supports in @var{tree-sitter-range-functions}, and Emacs
-will set the ranges accordingly before fontifing a region
-(@pxref{Multiple Languages}).
-
+could be used to alter the fontification behavior.  Currently there
+aren't any.
 @end defvar
+
+Multi-language major modes should provide range functions in
+@var{tree-sitter-range-functions}, and Emacs will set the ranges
+accordingly before fontifing a region (@pxref{Multiple Languages}).
 
 @node Auto-Indentation
 @section Automatic Indentation of code
@@ -4523,10 +4522,10 @@ When built with the tree-sitter library (@pxref{Parsing Program
 Source}), Emacs could parse program source and produce a syntax tree.
 And this syntax tree can be used for indentation.  For maximum
 flexibility, we could write a custom indent function that queries the
-syntax tree and indents accordingly, but that would be a lot of work.
-It is more convenient to use the simple indentation engine provided by
-Emacs.  We write some indentation rules and the engine takes care of
-the rest.
+syntax tree and indents accordingly for each language, but that would
+be a lot of work.  It is more convenient to use the simple indentation
+engine described below: we only need to write some indentation rules
+and the engine takes care of the rest.
 
 To enable the indentation engine, set the value of
 @var{indent-line-function} to @code{tree-sitter-indent}.
@@ -4562,7 +4561,8 @@ A @var{matcher} is a function that takes three arguments (@var{node}
 @var{parent} @var{bol}).  Argument @var{bol} is the point at where we
 are indenting: the position of the first non-whitespace character from
 the beginning of line; @var{node} is the largest (highest-in-tree)
-node starting at that point; @var{parent} is the parent of @var{node};
+node that starts at that point; @var{parent} is the parent of
+@var{node};
 
 If @var{matcher} returns non-nil, meaning the rule matches, Emacs then
 uses @var{anchor} to find an anchor, it should be a function that
@@ -4640,7 +4640,7 @@ parent
 This anchor returns the start of @var{parent}.
 
 @example
-pre-sibling
+prev-sibling
 @end example
 
 This anchor returns the start of the previous sibling of @var{node}.
