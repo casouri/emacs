@@ -440,9 +440,7 @@ Finally Emacs computes the column of that point returned by ANCHOR
 and adds OFFSET to it, and indents to that column.
 
 For MATCHER and ANCHOR, Emacs provides some convenient presets.
-See `tree-sitter-simple-indent-presets'.
-
-TODO: examples in manual")
+See `tree-sitter-simple-indent-presets'.")
 
 (defvar tree-sitter-simple-indent-presets
   '((match . (lambda
@@ -555,9 +553,7 @@ no-indent
 prev-line
 
     Find the named node on the previous line.  This can be used when
-    indenting an empty line: just indent like the previous node.
-
-TODO: manual?")
+    indenting an empty line: just indent like the previous node.")
 
 (defun tree-sitter--simple-apply (fn args)
   "Apply ARGS to FN.
