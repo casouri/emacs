@@ -97,18 +97,24 @@ Return the root node of the syntax tree."
   "Set the ranges of PARSER-OR-LANG to RANGES."
   (tree-sitter-parser-set-included-ranges
    (cond ((symbolp parser-or-lang)
-          (tree-sitter-get-parser parser-or-lang))
+          (or (tree-sitter-get-parser parser-or-lang)
+              (error "Cannot find a parser for %s" parser-or-lang)))
          ((tree-sitter-parser-p parser-or-lang)
-          parser-or-lang))
+          parser-or-lang)
+         (t (error "Expecting a parser or language, but got %s"
+                   parser-or-lang)))
    ranges))
 
 (defun tree-sitter-get-ranges (parser-or-lang)
   "Get the ranges of PARSER-OR-LANG."
   (tree-sitter-parser-included-ranges
    (cond ((symbolp parser-or-lang)
-          (tree-sitter-get-parser parser-or-lang))
+          (or (tree-sitter-get-parser parser-or-lang)
+              (error "Cannot find a parser for %s" parser-or-lang)))
          ((tree-sitter-parser-p parser-or-lang)
-          parser-or-lang))))
+          parser-or-lang)
+         (t (error "Expecting a parser or language, but got %s"
+                   parser-or-lang)))))
 
 ;;; Node API supplement
 
@@ -139,16 +145,20 @@ that language in the current buffer, and use that."
 
 (defun tree-sitter-buffer-root-node (&optional language)
   "Return the root node of the current buffer.
-PARSER-OR-LANG is like in `tree-sitter-node-at'."
-  (if-let ((parser (if language (tree-sitter-get-parser language)
-                     (car tree-sitter-parser-list))))
+Use the first parser in `tree-sitter-parser-list', if LANGUAGE is
+non-nil, use the first parser for LANGUAGE."
+  (if-let ((parser
+            (or (if language
+                    (or (tree-sitter-get-parser language)
+                        (error "Cannot find a parser for %s" language))
+                  (or (car tree-sitter-parser-list)
+                      (error "Buffer has no parser"))))))
       (tree-sitter-parser-root-node parser)))
 
 (defun tree-sitter-filter-child (node pred &optional named)
   "Return children of NODE that satisfies PRED.
-
 PRED is a function that takes one argument, the child node.  If
-NAMED non-nil, only search for named node.  NAMED defaults to nil."
+NAMED non-nil, only search for named node."
   (let ((child (tree-sitter-node-child node 0 named))
         result)
     (while child
@@ -157,16 +167,20 @@ NAMED non-nil, only search for named node.  NAMED defaults to nil."
       (setq child (tree-sitter-node-next-sibling child named)))
     (reverse result)))
 
-(defun tree-sitter-node-text (node)
-  "Return the buffer (or string) content corresponding to NODE."
+(defun tree-sitter-node-text (node &optional no-property)
+  "Return the buffer (or string) content corresponding to NODE.
+If NO-PROPERTY is non-nil, remove text properties."
   (with-current-buffer (tree-sitter-node-buffer node)
-    (buffer-substring
-     (tree-sitter-node-start node)
-     (tree-sitter-node-end node))))
+    (if no-property
+        (buffer-substring-no-properties
+         (tree-sitter-node-start node)
+         (tree-sitter-node-end node))
+      (buffer-substring
+       (tree-sitter-node-start node)
+       (tree-sitter-node-end node)))))
 
 (defun tree-sitter-parent-until (node pred)
   "Return the closest parent of NODE that satisfies PRED.
-
 Return nil if none found.  PRED should be a function that takes
 one argument, the parent node."
   (let ((node (tree-sitter-node-parent node)))
@@ -176,7 +190,6 @@ one argument, the parent node."
 
 (defun tree-sitter-parent-while (node pred)
   "Return the furthest parent of NODE that satisfies PRED.
-
 Return nil if none found.  PRED should be a function that takes
 one argument, the parent node."
   (let ((last nil))
@@ -187,7 +200,7 @@ one argument, the parent node."
 
 (defun tree-sitter-node-children (node &optional named)
   "Return a list of NODE's children.
-If NAMED is non-nil, count named child only."
+If NAMED is non-nil, collect named child only."
   (mapcar (lambda (idx)
             (tree-sitter-node-child node idx named))
           (number-sequence
