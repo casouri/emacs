@@ -277,6 +277,87 @@
       ;; TODO: More tests.
       )))
 
+(ert-deftest tree-sitter-parser-supplemental ()
+  "Supplemental node functions."
+  ;; `tree-sitter-get-parser'.
+  (with-temp-buffer
+    (should (equal (tree-sitter-get-parser 'tree-sitter-json) nil)))
+  ;; `tree-sitter-get-parser-create'.
+  (with-temp-buffer
+    (should (not (equal (tree-sitter-get-parser-create 'tree-sitter-json)
+                        nil))))
+  ;; `tree-sitter-parse-string'.
+  (should (equal (tree-sitter-node-string
+                  (tree-sitter-parse-string
+                   "[1,2,{\"name\": \"Bob\"},3]"
+                   'tree-sitter-json))
+                 "(document (array (number) (number) (object (pair key: (string (string_content)) value: (string (string_content)))) (number)))"))
+  (with-temp-buffer
+    (let (parser root-node doc-node object-node pair-node)
+      (progn
+        (insert "[1,2,{\"name\": \"Bob\"},3]")
+        (setq parser (tree-sitter-parser-create
+                      (current-buffer) 'tree-sitter-json))
+        (setq root-node (tree-sitter-parser-root-node
+                         parser))
+        (setq doc-node (tree-sitter-node-child root-node 0)))
+      ;; `tree-sitter-get-parser'.
+      (should (not (equal (tree-sitter-get-parser 'tree-sitter-json)
+                          nil)))
+      ;; `tree-sitter-language-at'.
+      (should (equal (tree-sitter-language-at (point))
+                     'tree-sitter-json))
+      ;; `tree-sitter-set-ranges', `tree-sitter-get-ranges'.
+      (tree-sitter-set-ranges 'tree-sitter-json
+                              '((1 . 2)))
+      (should (equal (tree-sitter-get-ranges 'tree-sitter-json)
+                     '((1 . 2)))))))
+
+(ert-deftest tree-sitter-node-supplemental ()
+  "Supplemental node functions."
+  (let (parser root-node doc-node array-node)
+    (progn
+      (insert "[1,2,{\"name\": \"Bob\"},3]")
+      (setq parser (tree-sitter-parser-create
+                    (current-buffer) 'tree-sitter-json))
+      (setq root-node (tree-sitter-parser-root-node
+                       parser))
+      (setq doc-node (tree-sitter-node-child root-node 0)))
+    ;; `tree-sitter-node-buffer'.
+    (should (equal (tree-sitter-node-buffer root-node)
+                   (current-buffer)))
+    ;; `tree-sitter-node-language'.
+    (should (eq (tree-sitter-node-language root-node)
+                'tree-sitter-json))
+    ;; `tree-sitter-node-at'.
+    (should (equal (tree-sitter-node-string
+                    (tree-sitter-node-at 1 2 'tree-sitter-json))
+                   "(\"[\")"))
+    ;; `tree-sitter-buffer-root-node'.
+    (should (tree-sitter-node-eq
+             (tree-sitter-buffer-root-node 'tree-sitter-json)
+             root-node))
+    ;; `tree-sitter-filter-child'.
+    (should (equal (mapcar
+                    (lambda (node)
+                      (tree-sitter-node-type node))
+                    (tree-sitter-filter-child
+                     doc-node (lambda (node)
+                                (tree-sitter-node-check node 'named))))
+                   '("number" "number" "object" "number")))
+    ;; `tree-sitter-node-text'.
+    (should (equal (tree-sitter-node-text doc-node)
+                   "[1,2,{\"name\": \"Bob\"},3]"))
+    ;; `tree-sitter-node-index'.
+    (should (eq (tree-sitter-node-index doc-node)
+                0))
+    ;; TODO:
+    ;; `tree-sitter-parent-until'
+    ;; `tree-sitter-parent-while'
+    ;; `tree-sitter-node-children'
+    ;; `tree-sitter-node-field-name'
+    ))
+
 ;; TODO
 ;; - Functions in tree-sitter.el
 ;; - tree-sitter-load-name-override-list
