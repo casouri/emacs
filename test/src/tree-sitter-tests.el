@@ -232,7 +232,7 @@
       (should-error
        (tree-sitter-parser-set-included-ranges
         parser '((1 . 6) (5 . 20)))
-       :type '(tree-sitter-set-range-error))
+       :type '(tree-sitter-range-invalid))
 
       (tree-sitter-parser-set-included-ranges
        parser '((1 . 6) (12 . 20) (23 . 29)))
