@@ -20,6 +20,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifndef EMACS_TREE_SITTER_H
 #define EMACS_TREE_SITTER_H
 
+#include <config.h>
 #include "lisp.h"
 
 #include <tree_sitter/api.h>
