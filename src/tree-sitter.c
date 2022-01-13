@@ -244,7 +244,8 @@ DEFUN ("tree-sitter-language-available-p",
 
 /*** Parsing functions */
 
-/* An auxiliary function that saves a few lines of code.  */
+/* An auxiliary function that saves a few lines of code.  Assumes TREE
+   is not NULL.  */
 static inline void
 ts_tree_edit_1 (TSTree *tree, ptrdiff_t start_byte,
 		ptrdiff_t old_end_byte, ptrdiff_t new_end_byte)
@@ -308,15 +309,18 @@ ts_ensure_position_synced (Lisp_Object parser)
 {
   TSParser *ts_parser = XTS_PARSER (parser)->parser;
   TSTree *tree = XTS_PARSER (parser)->tree;
+
+  if (tree == NULL)
+    return;
+
   struct buffer *buffer = XBUFFER (XTS_PARSER (parser)->buffer);
+  ptrdiff_t visible_beg = XTS_PARSER (parser)->visible_beg;
+  ptrdiff_t visible_end = XTS_PARSER (parser)->visible_end;
   /* Before we parse or set ranges, catch up with the narrowing
      situation.  We change visible_beg and visible_end to match
      BUF_BEGV_BYTE and BUF_ZV_BYTE, and inform tree-sitter of the
-     change.  */
-  ptrdiff_t visible_beg = XTS_PARSER (parser)->visible_beg;
-  ptrdiff_t visible_end = XTS_PARSER (parser)->visible_end;
-  /* Before re-parse, we want to move the visible range of tree-sitter
-     to matched the narrowed range. For example,
+     change.  We want to move the visible range of tree-sitter to
+     match the narrowed range. For example,
      from ________|xxxx|__
      to   |xxxx|__________ */
 

@@ -32,27 +32,31 @@ INLINE_HEADER_BEGIN
 struct Lisp_TS_Parser
 {
   union vectorlike_header header;
-  /* A symbol represents the language this parser uses.  It should be
-   the symbol of the function provided by a language dynamic
-   module.  */
+  /* A symbol represents the language this parser uses.  See the
+     manual for more explanation.  */
   Lisp_Object language_symbol;
+  /* The buffer associated with this parser.  */
   Lisp_Object buffer;
+  /* The pointer to the tree-sitter parser.  Never NULL.  */
   TSParser *parser;
+  /* Pointer to the syntax tree.  Initially is NULL, so check for NULL
+     before use.  */
   TSTree *tree;
+  /* Teaches tree-sitter how to read an Emacs buffer.  */
   TSInput input;
   /* Re-parsing an unchanged buffer is not free for tree-sitter, so we
      only make it re-parse when need_reparse == true.  That usually
      means some change is made in the buffer.  But others could set
      this field to true to force tree-sitter to re-parse.  */
   bool need_reparse;
-  /* These two positions record the buffer byte position (count from
-     1) of the "visible region" that tree-sitter sees.  Unlike
-     markers, These two positions do not change as the user inserts
-     and deletes text around them. Before re-parse, we move these
-     positions to match BUF_BEGV_BYTE and BUF_ZV_BYTE.  Note that we
-     don't need to synchronize these positions when retrieving them in
-     a function that involves a node: if the node is not outdated,
-     these positions are synchronized.  */
+  /* These two positions record the buffer byte position (1-based) of
+     the "visible region" that tree-sitter sees.  Unlike markers,
+     These two positions do not change as the user inserts and deletes
+     text around them. Before re-parse, we move these positions to
+     match BUF_BEGV_BYTE and BUF_ZV_BYTE.  Note that we don't need to
+     synchronize these positions when retrieving them in a function
+     that involves a node: if the node is not outdated, these
+     positions are synchronized.  */
   ptrdiff_t visible_beg;
   ptrdiff_t visible_end;
   /* This counter is incremented every time a change is made to the
