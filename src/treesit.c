@@ -90,6 +90,24 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
      node type.
  */
 
+#define QUERY_CACHE_SIZE 20
+
+struct query_cache {
+  /* Points to the next cache entry in the linked list.  */
+  struct query_cache *next;
+  /* Points to the source of the query.  Default to Qnil.  */
+  Lisp_Object source;
+  /* Points to the compiled query.  Default to NULL.  */
+  TSQuery *compiled_query;
+};
+
+/* Stores the query cache entries.  */
+static struct query_cache query_cache_store[QUERY_CACHE_SIZE];
+
+/* Head of the linked list, points to the most recently used cache
+   entry.  */
+static struct query_cache *query_cache_head = query_cache_store;
+
 /*** Initialization */
 
 bool ts_initialized = false;
@@ -107,6 +125,19 @@ ts_initialize ()
     {
       ts_set_allocator (xmalloc, ts_calloc_wrapper, xrealloc, xfree);
       ts_initialized = true;
+
+      /* Initialize the query cache.  */
+      for (int idx=0; idx < QUERY_CACHE_SIZE; idx++)
+	{
+	  struct query_cache *entry_ptr = &query_cache_store[idx];
+	  if (idx == QUERY_CACHE_SIZE)
+	    entry_ptr->next = NULL;
+	  else
+	    entry_ptr->next = &query_cache_store[idx + 1];
+	  entry_ptr->compiled_query = NULL;
+	  entry_ptr->source = Qnil;
+	}
+
     }
 }
 
@@ -1444,6 +1475,75 @@ ts_eval_predicates
   return pass;
 }
 
+/* Search for cached query by SOURCE.  SOURCE is what you get as query
+   argument in query functions, it has to be of right type (string or
+   cons).  Either get the compiled query from cache or compile SOURCE,
+   save in cache, and return the compiled query.  LANG, ERROR_OFFSET,
+   and error_type are the same as in 'ts_query_new', they are used if
+   we need to compile SOURCE.  If an error occurs when compiling
+   SOURCE, the cache is left unchanged, and we return NULL.  */
+static TSQuery *
+gives_you_compiled_query
+(Lisp_Object source, const TSLanguage *lang,
+ uint32_t *error_offset, TSQueryError *error_type)
+{
+  bool cache_hit = false;
+  /* THIS_P is the pointer to the current cache entry, PREV_NEXT_PP is
+     the pointer to the previous entry's NEXT field.  */
+  struct query_cache *this_p, **prev_next_pp;
+  /* Go over each entry in the cache and either a) find a hit or b)
+     end with a entry that can be evicted and filled (THIS_P and
+     PREV_NEXT_PP pointing to appropriate places).  */
+  for (prev_next_pp = &query_cache_head; ; prev_next_pp = &this_p->next)
+    {
+      /* Previous' next is this.  */
+      this_p = *prev_next_pp;
+      /* If we are at the end or at an empty entry, stop.  */
+      if (this_p == NULL || this_p->compiled_query == NULL)
+	break;
+      /* So this entry is not empty, is it a match?  */
+      if (EQ (this_p->source, source))
+	{
+	  cache_hit = true;
+	  break;
+	}
+    }
+
+  /* Get a compiled query either from cache or by compiling.  */
+  TSQuery *result_query;
+  if (cache_hit)
+    {
+      result_query = this_p->compiled_query;
+    }
+  else
+    {
+      if (CONSP (source))
+	source = Ftreesit_expand_query (source);
+
+      char *str_source = SSDATA (source);
+      result_query =
+	ts_query_new (lang, str_source, strlen (str_source),
+		      error_offset, error_type);
+      /* Also fill in the cache entry.  */
+      if (result_query == NULL)
+	return NULL;
+
+      if (this_p->compiled_query != NULL)
+	ts_query_delete (this_p->compiled_query);
+
+      this_p->compiled_query = result_query;
+      this_p->source = source;
+    }
+
+  /* Move around in the linked list so our recently used entry (this
+     entry) is at the beginning.  */
+  *prev_next_pp = this_p->next;
+  this_p->next = query_cache_head;
+  query_cache_head = this_p;
+
+  return result_query;
+}
+
 DEFUN ("treesit-query-capture",
        Ftreesit_query_capture,
        Streesit_query_capture, 2, 4, 0,
@@ -1470,10 +1570,8 @@ else goes wrong.  */)
   if (!NILP (end))
     CHECK_INTEGER (end);
 
-  if (CONSP (query))
-    query = Ftreesit_expand_query (query);
-  else
-    CHECK_STRING (query);
+  if (!(CONSP (query) || STRINGP (query)))
+    wrong_type_argument (Qcons_or_string_p, query);
 
   /* Extract C values from Lisp objects.  */
   TSNode ts_node = XTS_NODE (node)->node;
@@ -1482,17 +1580,12 @@ else goes wrong.  */)
     XTS_PARSER (XTS_NODE (node)->parser)->visible_beg;
   const TSLanguage *lang = ts_parser_language
     (XTS_PARSER (lisp_parser)->parser);
-  char *source = SSDATA (query);
 
   /* Initialize query objects, and execute query.  */
   uint32_t error_offset;
   TSQueryError error_type;
-  /* TODO: We could cache the query object, so that repeatedly
-     querying with the same query can reuse the query object.  It also
-     saves us from expanding the sexp query into a string.  I don't
-     know how much time that could save though.  */
-  TSQuery *ts_query = ts_query_new (lang, source, strlen (source),
-				    &error_offset, &error_type);
+  TSQuery *ts_query = gives_you_compiled_query
+    (query, lang, &error_offset, &error_type);
   TSQueryCursor *cursor = ts_query_cursor_new ();
 
   if (ts_query == NULL)
@@ -1555,7 +1648,6 @@ else goes wrong.  */)
 	  result = prev_result;
 	}
     }
-  ts_query_delete (ts_query);
   ts_query_cursor_delete (cursor);
   return Fnreverse (result);
 }
@@ -1586,6 +1678,7 @@ syms_of_treesit (void)
 	  "treesit-node-outdated");
   DEFSYM (Quser_emacs_directory,
 	  "user-emacs-directory");
+  DEFSYM (Qcons_or_string_p, "cons-or-string-p");
 
   define_error (Qtreesit_error, "Generic tree-sitter error", Qerror);
   define_error (Qtreesit_query_error, "Query pattern is malformed",
