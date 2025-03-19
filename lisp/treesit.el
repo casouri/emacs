@@ -1226,7 +1226,11 @@ omitted, default END to BEG."
                return rng
                finally return nil))))
 
-;;; Language display name
+;;; Language
+
+;; Defined in tressit.c.  This is just to add some default values.
+(defvar treesit-languages-need-line-column-tracking
+  '(haskell))
 
 ;; The entries are sorted by `sort-lines'.
 (defvar treesit-language-display-name-alist

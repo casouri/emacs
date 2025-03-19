@@ -220,6 +220,21 @@ extern ptrdiff_t advance_to_char_boundary (ptrdiff_t byte_pos);
 
 /* Define the actual buffer data structures.  */
 
+/* This data structure stores the cache of a position and its line and
+   column number.  The column number is counted in bytes.  The line
+   number and column number don't respect narrowing.  */
+struct ts_linecol
+{
+  /* The byte position of POS.  */
+  ptrdiff_t bytepos;
+  /* The line number of this position.  */
+  ptrdiff_t line;
+  /* The column number (in bytes) of this position.  Unlike Emacs'
+     convention, this is 0-based (because tree-sitter column is
+     0-based).  Simply the byte offset from BOL (or BOB).  */
+  ptrdiff_t col;
+};
+
 /* This data structure describes the actual text contents of a buffer.
    It is shared between indirect buffers and their base buffer.  */
 
@@ -700,6 +715,22 @@ struct buffer
   /* The interval tree containing this buffer's overlays. */
   struct itree_tree *overlays;
 
+  /* Right now only tree-sitter makes use of this, so I don't want
+     non-tree-sitter build to pay for it.  If something else can make
+     use of this, we can remove the gate.  */
+#ifdef HAVE_TREE_SITTER
+  /* Cache of line and column number of a position.  The position cached
+     is usually near point.  Tree-sitter uses this cache to calculate
+     line and column of the beginning and end of buffer edits.  Stores
+     three caches for BEGV, point, ZV, respectively.  All three are
+     refreshed in buffer edit functions, so they're always up-to-date.
+     All caches are initialized to empty, meaning no linecol tracking
+     for this buffer.  */
+  struct ts_linecol ts_linecol_begv;
+  struct ts_linecol ts_linecol_point;
+  struct ts_linecol ts_linecol_zv;
+#endif
+
   /* Changes in the buffer are recorded here for undo, and t means
      don't record anything.  This information belongs to the base
      buffer of an indirect buffer.  But we can't store it in the
@@ -1133,6 +1164,45 @@ BUFFER_CHECK_INDIRECTION (struct buffer *b)
 	eassert (b->indirections >= 0);
     }
 }
+
+#ifdef HAVE_TREE_SITTER
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_BEGV (struct buffer *buffer)
+{
+  return buffer->ts_linecol_begv;
+}
+INLINE struct ts_linecol
+BUF_TS_LINECOL_POINT (struct buffer *buffer)
+{
+  return buffer->ts_linecol_point;
+}
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_ZV (struct buffer *buffer)
+{
+  return buffer->ts_linecol_zv;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_BEGV (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_begv = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_POINT (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_point = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_ZV (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_zv = linecol;
+}
+
+#endif
 
 /* This structure holds the default values of the buffer-local variables
    that have special slots in each buffer.
