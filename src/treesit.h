@@ -232,9 +232,9 @@ CHECK_TS_COMPILED_QUERY (Lisp_Object query)
 INLINE_HEADER_END
 
 /* A linecol_cache that points to BOB, this is always valid.  */
-static const struct ts_linecol TREESIT_BOB_LINECOL = { 1, 1, 1, 0 };
+static const struct ts_linecol TREESIT_BOB_LINECOL = { 1, 1, 0 };
 /* An uninitialized linecol.  */
-static const struct ts_linecol TREESIT_EMPTY_LINECOL = { 0, 0, 0, 0 };
+static const struct ts_linecol TREESIT_EMPTY_LINECOL = { 0, 0, 0 };
 static const TSPoint TREESIT_TS_POINT_1_0 = { 1, 0 };
 
 extern struct ts_linecol linecol_offset (struct ts_linecol,

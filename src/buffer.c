@@ -642,8 +642,7 @@ even if it is dead.  The return value is never nil.  */)
   b->prevent_redisplay_optimizations_p = 1;
 
 #ifdef HAVE_TREE_SITTER
-  b->ts_linecol_cache.pos = 1;
-  b->ts_linecol_cache.byte_pos = 1;
+  b->ts_linecol_cache.bytepos = 1;
   b->ts_linecol_cache.line = 1;
   b->ts_linecol_cache.col = 0;
 #endif
@@ -875,8 +874,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
   bset_width_table (b, Qnil);
 
 #ifdef HAVE_TREE_SITTER
-  b->ts_linecol_cache.pos = 1;
-  b->ts_linecol_cache.byte_pos = 1;
+  b->ts_linecol_cache.bytepos = 1;
   b->ts_linecol_cache.line = 1;
   b->ts_linecol_cache.col = 0;
 #endif

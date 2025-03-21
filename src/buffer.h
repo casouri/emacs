@@ -222,13 +222,11 @@ extern ptrdiff_t advance_to_char_boundary (ptrdiff_t byte_pos);
 
 /* This data structure stores the cache of a position and its line and
    column number.  The column number is counted in bytes.  The line
-   number and column number don't consider narrowing.  */
+   number and column number don't respect narrowing.  */
 struct ts_linecol
 {
-  /* A position in the buffer.  */
-  ptrdiff_t pos;
   /* The byte position of POS.  */
-  ptrdiff_t byte_pos;
+  ptrdiff_t bytepos;
   /* The line number of this position.  */
   ptrdiff_t line;
   /* The column number (in bytes) of this position.  Unlike Emacs'
