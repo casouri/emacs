@@ -230,7 +230,7 @@
   "Tests for basic lincol synchronization."
   (with-temp-buffer
     (should (equal (treesit--linecol-cache)
-                   '(:line 1 :col 0 :pos 1 :bytepos 1)))
+                   '(:line 1 :col 0 :bytepos 1)))
     (should (equal (treesit--linecol-at (point))
                    '(1 . 0)))
     (insert "\n")
@@ -238,9 +238,9 @@
     (should (equal (treesit--linecol-at (point))
                    '(2 . 0)))
 
-    (treesit--linecol-cache-set 2 0 2 2)
+    (treesit--linecol-cache-set 2 0 2)
     (should (equal (treesit--linecol-cache)
-                   '(:line 2 :col 0 :pos 2 :bytepos 2)))
+                   '(:line 2 :col 0 :bytepos 2)))
 
     (goto-char (point-min))
     (should (equal (treesit--linecol-at (point))
@@ -248,7 +248,7 @@
 
     (insert "0123456789")
     ;; Buffer content: ten chars followed by a newline.
-    (treesit--linecol-cache-set 1 0 1 1)
+    (treesit--linecol-cache-set 1 0 1)
     (should (equal (treesit--linecol-at (point))
                    '(1 . 10)))
 
@@ -256,18 +256,35 @@
     (should (equal (treesit--linecol-at (point))
                    '(2 . 0)))
 
-    (treesit--linecol-cache-set 1 5 6 6)
+    (treesit--linecol-cache-set 1 5 6)
     (should (equal (treesit--linecol-at (point))
                    '(2 . 0)))
 
-    (treesit--linecol-cache-set 2 0 12 12)
+    (treesit--linecol-cache-set 2 0 12)
     ;; Position 6 is in the middle of the first line.
     (should (equal (treesit--linecol-at 6)
                    '(1 . 5)))
     ;; Position 11 is at the end of the line.
     (should (equal (treesit--linecol-at 11)
-                   '(1 . 10)))
-    ))
+                   '(1 . 10)))))
+
+(ert-deftest treesit-linecol-search-back-across-newline ()
+  "Search for newline backwards."
+  (with-temp-buffer
+    (insert "\n ")
+    (treesit--linecol-cache-set 2 1 3)
+    (should (equal (treesit--linecol-at (point)) '(2 . 1)))
+    (should (equal (treesit--linecol-at 2) '(2 . 0)))
+    (should (equal (treesit--linecol-at 1) '(1 . 0)))))
+
+(ert-deftest treesit-linecol-col-same-line ()
+  "Test col calculation when cache and target pos is in the same line."
+  (with-temp-buffer
+    (insert "aaaaaa")
+    (treesit--linecol-cache-set 1 5 6)
+    (should (equal (treesit--linecol-at 6) '(1 . 5)))
+    (should (equal (treesit--linecol-at 2) '(1 . 1)))
+    (should (equal (treesit--linecol-at 1) '(1 . 0)))))
 
 ;;; Tree traversal
 

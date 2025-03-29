@@ -885,6 +885,10 @@ treesit_debug_validate_linecol (struct ts_linecol linecol)
   eassert (true_line_count == linecol.line);
 }
 
+/* Similar to display_count_lines, but behaves differently when
+   searching backwards: when found a newline, stop at the newline,
+   return count as normal (display_count_lines subtracts one).  When
+   searching rorward, stop at the position after the newline.  */
 static ptrdiff_t
 treesit_count_lines (ptrdiff_t start_byte,
 		     ptrdiff_t limit_byte, ptrdiff_t count,
@@ -937,16 +941,14 @@ treesit_count_lines (ptrdiff_t start_byte,
 	  while (true)
 	    {
 	      cursor = memrchr (ceiling_addr, '\n', cursor - ceiling_addr);
-	      if (! cursor)
+	      if (!cursor)
 		break;
 
 	      if (++count == 0)
 		{
-		  start_byte += cursor - base + 1;
+		  start_byte += cursor - base;
 		  *byte_pos_ptr = start_byte;
-		  /* When scanning backwards, we should
-		     not count the newline posterior to which we stop.  */
-		  return - orig_count - 1;
+		  return - orig_count;
 		}
 	    }
 	  start_byte += ceiling_addr - base;
@@ -1048,8 +1050,9 @@ treesit_linecol_of_pos (ptrdiff_t target_bytepos,
     {
       /* We need to find the previous newline in order to calculate the
 	 column.  */
-      treesit_count_lines (byte_pos_2, BEG_BYTE, -1, &byte_pos_2);
-      target_linecol.col = target_bytepos - byte_pos_2;
+      ptrdiff_t counted = treesit_count_lines (byte_pos_2, BEG_BYTE, -1, &byte_pos_2);
+      target_linecol.col
+	= target_bytepos - (byte_pos_2 + counted == 1 ? 1 : 0);
     }
 
   if (TREESIT_DEBUG_LINECOL)
@@ -1281,7 +1284,6 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 	    visi_beg_delta = (old_end_byte < visible_beg
 			      ? new_end_byte - old_end_byte : 0);
 
-	  ptrdiff_t old_visi_beg = visible_beg;
 	  struct ts_linecol old_visi_beg_linecol
 	    = XTS_PARSER (lisp_parser)->visi_beg_linecol;
 	  struct ts_linecol old_visi_end_linecol
