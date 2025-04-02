@@ -406,7 +406,54 @@ init_treesit_functions (void)
    from the user's POV, each buffer, regardless of indirect or not,
    appears to have their own parser list.  A discussion can be found in
    bug#59693.  Note that that discussion led to an earlier design, which
-   is different from the current one.  */
+   is different from the current one.
+
+   Line and column reporting to tree-sitter: technically we had to send
+   tree-sitter the line and column position of each edit.  But in
+   practice we just send it dummy values, because tree-sitter doesn't
+   use it for parsing and mostly just carries the line and column
+   positions around and return it when e.g. reporting node positions.
+   This has been working for a while until we encountered grammars that
+   actually utilizes the line and column information for parsing
+   (Haskell) [1].
+
+   So now we have to keep track of line and column positions and pass
+   valid values to tree-sitter.  Eli convinced me to disable tracking by
+   default, and only enable it for languages that needs it, for the
+   performance benefit.  So the buffer starts out not tracking linecol.
+   And when a parser is created, if the language is in
+   treesit-languages-need-line-column-tracking, we enable tracking in
+   the buffer, and enable tracking for the parser.  To simplify things,
+   once a buffer starts tracking linecol, it never disables tracking,
+   even if parsers that need tracking are all deleted (we rarely delete
+   parsers anyway); and for parsers, tracking is determined at creation
+   time, if it starts out tracking/non-tracking, it stays that way,
+   regardless of changes to treesit-languages-need-line-column-tracking.
+
+   To make calculating line/column positons fast, we store a linecol
+   cache in the buffer (which should be usually near point)
+   (buf->ts_linecol_cache); and we store linecol cache for the visible
+   beg/end for each parser in the parser object.  To calculate the
+   linecol for a position, we just scan newlines from the buffer cache
+   (treesit_linecol_of_pos).  And we can optionally set the buffer cache
+   to the newly calculated linecol.
+
+   On the parser side, we need to keep track of three things: visible
+   beginning's linecol, visible end's linecol, and the edit's linecol
+   (start/old_end/new_end).  The visible beginning is easy to
+   calculate--just use the old linecol as cache and scan from there.
+   The edit's linecol we can scan from buffer's cache.  But for visible
+   end, because it's always positioned after the edit, it's old linecol
+   is invalid in the post-edit buffer.  So we can't scan from the old
+   linecol.  We don't want to scan from the edit's new linecol or
+   buffer's cache, because they're usually far away.  So in the end I
+   wrote a function that calculates the new visible end's linecol by
+   counting newline changes in the edit (how many are removed and how
+   many are added) and applying the difference to the old linecol
+   (compute_new_linecol_by_change).
+
+   [1] https://github.com/tree-sitter/tree-sitter/issues/4001#issuecomment-2599595044
+   */
 
 
 /*** Initialization  */
@@ -885,6 +932,12 @@ treesit_debug_validate_linecol (struct ts_linecol linecol)
   eassert (true_line_count == linecol.line);
 }
 
+/* Returns true if BUFFER tracks linecol.  */
+bool treesit_buf_tracks_linecol_p (struct buffer *buffer)
+{
+  return buffer->ts_linecol_cache.bytepos != 0;
+}
+
 /* Similar to display_count_lines, but behaves differently when
    searching backwards: when found a newline, stop at the newline,
    return count as normal (display_count_lines subtracts one).  When
@@ -1085,6 +1138,25 @@ treesit_make_ts_point (struct ts_linecol visible_beg,
   return point;
 }
 
+/* TODO mention in manual.  */
+DEFUN ("treesit-tracking-line-column-p",
+       Ftreesit_tracking_line_column_p,
+       Streesit_tracking_line_column_p, 0, 1, 0,
+       doc : /* Return non-nil if BUFFER is tracking line and column.
+
+Return nil otherwise.  BUFFER defaults to the current buffer.  */)
+  (Lisp_Object buffer)
+{
+  struct buffer *buf = current_buffer;
+  if (!NILP (buffer))
+    {
+      CHECK_BUFFER (buffer);
+      buf = XBUFFER (buffer);
+    }
+
+  return treesit_buf_tracks_linecol_p (buf) ? Qt : Qnil;
+}
+
 /*** Parsing functions  */
 
 static void
@@ -1210,7 +1282,11 @@ compute_new_linecol_by_change (struct ts_linecol pos_linecol,
    does not parse the buffer and only updates the tree, so it should be
    very fast.  If the caller knows there's no parser in the current
    buffer, they can pass empty linecol for
-   START/OLD_END/NEW_END_linecol.  */
+   START/OLD_END/NEW_END_linecol.
+
+   If the current buffer doesn't track linecol, start_linecol,
+   old_end_linecol, and new_end_linecol will be empty.  In that case,
+   don't process linecols.  */
 static void
 treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 			 ptrdiff_t new_end_byte,
@@ -1223,6 +1299,8 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
     base_buffer = current_buffer->base_buffer;
   Lisp_Object parser_list = BVAR (base_buffer, ts_parser_list);
 
+  bool buf_tracks_linecol = start_linecol.bytepos != 0;
+
   FOR_EACH_TAIL_SAFE (parser_list)
     {
       CHECK_CONS (parser_list);
@@ -1231,6 +1309,9 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
       TSTree *tree = XTS_PARSER (lisp_parser)->tree;
       /* See comment (ref:visible-beg-null) if you wonder why we don't
 	 update visible_beg/end when tree is NULL.  */
+
+      bool parser_tracks_linecol
+	= XTS_PARSER (lisp_parser)->visi_beg_linecol.bytepos != 0;
 
       if (tree != NULL)
 	{
@@ -1268,9 +1349,6 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 	  eassert (start_offset <= old_end_offset);
 	  eassert (start_offset <= new_end_offset);
 
-	  /* We have the correct offset for start/end now; next, we need
-	     to calculate the TSPoint and visi_beg/end.  */
-
 	  /* VISIBLE_BEG/END records tree-sitter's range of view in
 	     the buffer.  We need to adjust them when tree-sitter's
 	     view changes.  */
@@ -1284,46 +1362,59 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 	    visi_beg_delta = (old_end_byte < visible_beg
 			      ? new_end_byte - old_end_byte : 0);
 
-	  struct ts_linecol old_visi_beg_linecol
-	    = XTS_PARSER (lisp_parser)->visi_beg_linecol;
-	  struct ts_linecol old_visi_end_linecol
-	    = XTS_PARSER (lisp_parser)->visi_end_linecol;
-
 	  const ptrdiff_t new_visible_beg = visible_beg + visi_beg_delta;
 	  const ptrdiff_t new_visible_end
 	    = (visible_end + visi_beg_delta
 	       + (new_end_offset - old_end_offset));
-	  const struct ts_linecol new_visi_beg_linecol
-	    = compute_new_linecol_by_change (old_visi_beg_linecol,
-					     new_visible_beg,
-					     start_linecol,
-					     old_end_linecol,
-					     new_end_linecol);
-	  const struct ts_linecol new_visi_end_linecol
-	    = compute_new_linecol_by_change (old_visi_end_linecol,
-					     new_visible_end,
-					     start_linecol,
-					     old_end_linecol,
-					     new_end_linecol);
 
 	  XTS_PARSER (lisp_parser)->visible_beg = new_visible_beg;
 	  XTS_PARSER (lisp_parser)->visible_end = new_visible_end;
-	  XTS_PARSER (lisp_parser)->visi_beg_linecol = new_visi_beg_linecol;
-	  XTS_PARSER (lisp_parser)->visi_end_linecol = new_visi_end_linecol;
 
 	  eassert (XTS_PARSER (lisp_parser)->visible_beg >= 0);
 	  eassert (XTS_PARSER (lisp_parser)->visible_beg
 	           <= XTS_PARSER (lisp_parser)->visible_end);
 
-	  /* Now, calculate TSPoints and finally update the tree.  */
-	  struct ts_linecol new_begv_linecol
-	    = XTS_PARSER (lisp_parser)->visi_beg_linecol;
-	  TSPoint old_end_point = treesit_make_ts_point (old_visi_beg_linecol,
-							 old_end_linecol);
-	  TSPoint start_point = treesit_make_ts_point (new_begv_linecol,
-						       start_linecol);
-	  TSPoint new_end_point = treesit_make_ts_point (new_begv_linecol,
-							 new_end_linecol);
+	  /* (Optionally) calculate the point for start/old_end/new_end
+	     to be sent to tree-sitter.  Also update parser cache for
+	     linecol.  */
+	  TSPoint start_point = TREESIT_TS_POINT_1_0;
+	  TSPoint old_end_point = TREESIT_TS_POINT_1_0;
+	  TSPoint new_end_point = TREESIT_TS_POINT_1_0;
+	  if (parser_tracks_linecol)
+	    {
+	      eassert (buf_tracks_linecol);
+	      struct ts_linecol old_visi_beg_linecol
+		= XTS_PARSER (lisp_parser)->visi_beg_linecol;
+	      struct ts_linecol old_visi_end_linecol
+		= XTS_PARSER (lisp_parser)->visi_end_linecol;
+
+	      const struct ts_linecol new_visi_beg_linecol
+		= compute_new_linecol_by_change (old_visi_beg_linecol,
+						 new_visible_beg,
+						 start_linecol,
+						 old_end_linecol,
+						 new_end_linecol);
+	      const struct ts_linecol new_visi_end_linecol
+		= compute_new_linecol_by_change (old_visi_end_linecol,
+						 new_visible_end,
+						 start_linecol,
+						 old_end_linecol,
+						 new_end_linecol);
+	      XTS_PARSER (lisp_parser)->visi_beg_linecol
+		= new_visi_beg_linecol;
+	      XTS_PARSER (lisp_parser)->visi_end_linecol
+		= new_visi_end_linecol;
+
+	      /* Now, calculate TSPoints and finally update the tree.  */
+	      struct ts_linecol new_begv_linecol
+		= XTS_PARSER (lisp_parser)->visi_beg_linecol;
+	      old_end_point = treesit_make_ts_point (old_visi_beg_linecol,
+						     old_end_linecol);
+	      start_point = treesit_make_ts_point (new_begv_linecol,
+						   start_linecol);
+	      new_end_point = treesit_make_ts_point (new_begv_linecol,
+						     new_end_linecol);
+	    }
 
 	  treesit_tree_edit_1 (tree, start_offset, old_end_offset,
 			       new_end_offset, start_point, old_end_point,
@@ -1334,13 +1425,14 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 }
 
 /* Return the linecol of POS, calculated from CACHE.  But if there's no
-   parser in the current buffer, skip calculation and return an empty
-   linecol instead.  */
+   parser in the current buffer, or line-column tracking is disabled,
+   skip calculation and return an empty linecol instead.  */
 struct ts_linecol
 treesit_linecol_maybe (ptrdiff_t pos, ptrdiff_t pos_byte,
 		       struct ts_linecol cache)
 {
-  if (NILP (BVAR (current_buffer, ts_parser_list)))
+  if (NILP (BVAR (current_buffer, ts_parser_list))
+      || !treesit_buf_tracks_linecol_p (current_buffer))
     return TREESIT_EMPTY_LINECOL;
 
   return treesit_linecol_of_pos (pos_byte, cache);
@@ -1358,7 +1450,11 @@ treesit_linecol_maybe (ptrdiff_t pos, ptrdiff_t pos_byte,
 
    If NEW_END is next to NEW_END_BYTE in the arglist, caller might
    accidentally swap them, so I placed NEW_END at the end of the
-   arglist.  */
+   arglist.
+
+   If the current buffer doesn't track linecol, start_linecol and
+   old_end_linecol will be empty.  In that case, don't process
+   linecols.  */
 void
 treesit_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 		       ptrdiff_t new_end_byte,
@@ -2153,6 +2249,13 @@ an indirect buffer.  */)
   /* Update parser-list.  */
   BVAR (buf, ts_parser_list) = Fcons (lisp_parser, BVAR (buf, ts_parser_list));
 
+  /* Enable line-column tracking if this language requires it.  */
+  if (!NILP (Fmemq (remapped_lang,
+		    Vtreesit_languages_need_line_column_tracking))
+      && !treesit_buf_tracks_linecol_p (buf))
+    {
+      buf->ts_linecol_cache = TREESIT_BOB_LINECOL;
+    }
   return lisp_parser;
 }
 
@@ -5057,6 +5160,17 @@ applies to LANGUAGE-A will be redirected to LANGUAGE-B instead.  */);
   DEFSYM (Qtreesit_language_remap_alist, "treesit-language-remap-alist");
   Fmake_variable_buffer_local (Qtreesit_language_remap_alist);
 
+  DEFVAR_LISP ("treesit-languages-need-line-column-tracking",
+	       Vtreesit_languages_need_line_column_tracking,
+	       doc:
+	       /* A list of languages that need line-column tracking.
+
+Most tree-sitter language grammars don't require line and column
+tracking to work, but some languages do.  When creating a parser, if the
+language is in this list, Emacs enables line-column tracking for the
+buffer.  */);
+  Vtreesit_languages_need_line_column_tracking = Qnil;
+
   staticpro (&Vtreesit_str_libtree_sitter);
   Vtreesit_str_libtree_sitter = build_string ("libtree-sitter-");
   staticpro (&Vtreesit_str_tree_sitter);
@@ -5100,6 +5214,8 @@ applies to LANGUAGE-A will be redirected to LANGUAGE-B instead.  */);
   defsubr (&Streesit_library_abi_version);
   defsubr (&Streesit_language_abi_version);
   defsubr (&Streesit_grammar_location);
+
+  defsubr (&Streesit_tracking_line_column_p);
 
   defsubr (&Streesit_parser_p);
   defsubr (&Streesit_node_p);

@@ -237,6 +237,7 @@ static const struct ts_linecol TREESIT_BOB_LINECOL = { 1, 1, 0 };
 static const struct ts_linecol TREESIT_EMPTY_LINECOL = { 0, 0, 0 };
 static const TSPoint TREESIT_TS_POINT_1_0 = { 1, 0 };
 
+extern bool treesit_buf_tracks_linecol_p (struct buffer *);
 extern struct ts_linecol linecol_offset (struct ts_linecol,
 					 struct ts_linecol);
 extern struct ts_linecol treesit_linecol_maybe (ptrdiff_t, ptrdiff_t,
