@@ -900,7 +900,8 @@ insert_1_both (const char *string,
 
 #ifdef HAVE_TREE_SITTER
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (PT, PT_BYTE, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (PT, PT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   if (prepare)
@@ -1033,7 +1034,8 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
 
 #ifdef HAVE_TREE_SITTER
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (PT, PT_BYTE, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (PT, PT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   /* Do this before moving and increasing the gap,
@@ -1126,7 +1128,8 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
 #ifdef HAVE_TREE_SITTER
   ptrdiff_t ins_bytepos = GPT_BYTE;
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (GPT, GPT_BYTE, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (GPT, GPT_BYTE,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   GAP_SIZE -= nbytes;
@@ -1213,7 +1216,8 @@ insert_from_buffer (struct buffer *buf,
 #ifdef HAVE_TREE_SITTER
   ptrdiff_t obyte = PT_BYTE;
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (opoint, obyte, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (opoint, obyte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   insert_from_buffer_1 (buf, charpos, nchars, inherit);
@@ -1519,9 +1523,11 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
 
 #ifdef HAVE_TREE_SITTER
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (from, from_byte, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (from, from_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
   struct ts_linecol old_end_linecol
-    = treesit_linecol_maybe (to, to_byte, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (to, to_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
 
@@ -1993,9 +1999,11 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 
 #ifdef HAVE_TREE_SITTER
   struct ts_linecol start_linecol
-    = treesit_linecol_maybe (from, from_byte, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (from, from_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
   struct ts_linecol old_end_linecol
-    = treesit_linecol_maybe (to, to_byte, current_buffer->ts_linecol_cache);
+    = treesit_linecol_maybe (to, to_byte,
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   /* Make sure the gap is somewhere in or next to what we are deleting.  */

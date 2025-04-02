@@ -545,10 +545,10 @@ casify_region (enum case_action flag, Lisp_Object b, Lisp_Object e)
   ptrdiff_t old_end_byte = CHAR_TO_BYTE (end);
   struct ts_linecol start_linecol
     = treesit_linecol_maybe (start, start_byte,
-			      current_buffer->ts_linecol_cache);
+			     BUF_TS_LINECOL_POINT (current_buffer));
   struct ts_linecol old_end_linecol
     = treesit_linecol_maybe (end, old_end_byte,
-			      current_buffer->ts_linecol_cache);
+			      BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   ptrdiff_t orig_end = end;

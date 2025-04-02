@@ -721,11 +721,14 @@ struct buffer
 #ifdef HAVE_TREE_SITTER
   /* Cache of line and column number of a position.  The position cached
      is usually near point.  Tree-sitter uses this cache to calculate
-     line and column of the beginning and end of buffer edits.  This
-     cache is refreshed in buffer edit functions, so it's always
-     up-to-date.  Usually, the newly calculated position and line/column
-     are saved to this field.  Initialized to position 1.  */
-  struct ts_linecol ts_linecol_cache;
+     line and column of the beginning and end of buffer edits.  Stores
+     three caches for BEGV, point, ZV, respectively.  All three are
+     refreshed in buffer edit functions, so they're always up-to-date.
+     All caches are initialized to empty, meaning no linecol tracking
+     for this buffer.  */
+  struct ts_linecol ts_linecol_begv;
+  struct ts_linecol ts_linecol_point;
+  struct ts_linecol ts_linecol_zv;
 #endif
 
   /* Changes in the buffer are recorded here for undo, and t means
@@ -1161,6 +1164,45 @@ BUFFER_CHECK_INDIRECTION (struct buffer *b)
 	eassert (b->indirections >= 0);
     }
 }
+
+#ifdef HAVE_TREE_SITTER
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_BEGV (struct buffer *buffer)
+{
+  return buffer->ts_linecol_begv;
+}
+INLINE struct ts_linecol
+BUF_TS_LINECOL_POINT (struct buffer *buffer)
+{
+  return buffer->ts_linecol_point;
+}
+
+INLINE struct ts_linecol
+BUF_TS_LINECOL_ZV (struct buffer *buffer)
+{
+  return buffer->ts_linecol_zv;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_BEGV (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_begv = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_POINT (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_point = linecol;
+}
+
+INLINE void
+SET_BUF_TS_LINECOL_ZV (struct buffer *buffer, struct ts_linecol linecol)
+{
+  buffer->ts_linecol_zv = linecol;
+}
+
+#endif
 
 /* This structure holds the default values of the buffer-local variables
    that have special slots in each buffer.

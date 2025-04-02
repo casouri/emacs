@@ -2295,10 +2295,10 @@ Both characters must have the same length of multi-byte form.  */)
   ptrdiff_t old_end_byte = CHAR_TO_BYTE (old_end_char);
   struct ts_linecol start_linecol
     = treesit_linecol_maybe (start_char, start_byte,
-			     current_buffer->ts_linecol_cache);
+			     BUF_TS_LINECOL_POINT (current_buffer));
   struct ts_linecol old_end_linecol
     = treesit_linecol_maybe (old_end_char, old_end_byte,
-			      current_buffer->ts_linecol_cache);
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
  restart:
@@ -2590,9 +2590,10 @@ It returns the number of characters changed.  */)
 	      else
 		{
 #ifdef HAVE_TREE_SITTER
+		  struct ts_linecol linecol_cache
+		    = BUF_TS_LINECOL_POINT (current_buffer);
 		  struct ts_linecol start_linecol
-		    = treesit_linecol_maybe (pos, pos_byte,
-					     current_buffer->ts_linecol_cache);
+		    = treesit_linecol_maybe (pos, pos_byte, linecol_cache);
 		  struct ts_linecol old_end_linecol
 		    = treesit_linecol_maybe (pos + 1, pos_byte + len,
 					     start_linecol);
@@ -4561,10 +4562,10 @@ ring.  */)
 #ifdef HAVE_TREE_SITTER
   struct ts_linecol start_linecol
     = treesit_linecol_maybe (start1, start1_byte,
-			     current_buffer->ts_linecol_cache);
+			     BUF_TS_LINECOL_POINT (current_buffer));
   struct ts_linecol old_end_linecol
     = treesit_linecol_maybe (end2, end2_byte,
-			      current_buffer->ts_linecol_cache);
+			     BUF_TS_LINECOL_POINT (current_buffer));
 #endif
 
   /* Make sure the gap won't interfere, by moving it out of the text

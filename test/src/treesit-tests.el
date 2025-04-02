@@ -230,7 +230,8 @@
   "Tests for basic lincol synchronization."
   (with-temp-buffer
     (should (equal (treesit--linecol-cache)
-                   '(:line 1 :col 0 :bytepos 1)))
+                   '(:line 0 :col 0 :bytepos 0)))
+    (treesit--linecol-cache-set 1 0 1)
     (should (equal (treesit--linecol-at (point))
                    '(1 . 0)))
     (insert "\n")
@@ -285,6 +286,21 @@
     (should (equal (treesit--linecol-at 6) '(1 . 5)))
     (should (equal (treesit--linecol-at 2) '(1 . 1)))
     (should (equal (treesit--linecol-at 1) '(1 . 0)))))
+
+(ert-deftest treesit-linecol-enable-disable ()
+  "Test enabling/disabling linecol tracking."
+  (skip-unless (treesit-language-available-p 'json))
+  (with-temp-buffer
+    (let ((treesit-languages-need-line-column-tracking nil)
+          parser)
+      (setq parser (treesit-parser-create 'json))
+      (should (not (treesit-tracking-line-column-p)))
+      (should (not (treesit-parser-tracking-line-column-p parser)))
+
+      (setq treesit-languages-need-line-column-tracking '(json))
+      (setq parser (treesit-parser-create 'json nil t))
+      (should (treesit-tracking-line-column-p))
+      (should (treesit-parser-tracking-line-column-p parser)))))
 
 ;;; Tree traversal
 
