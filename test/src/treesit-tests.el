@@ -291,13 +291,13 @@
   "Test enabling/disabling linecol tracking."
   (skip-unless (treesit-language-available-p 'json))
   (with-temp-buffer
-    (let ((treesit-languages-need-line-column-tracking nil)
+    (let ((treesit-languages-require-line-column-tracking nil)
           parser)
       (setq parser (treesit-parser-create 'json))
       (should (not (treesit-tracking-line-column-p)))
       (should (not (treesit-parser-tracking-line-column-p parser)))
 
-      (setq treesit-languages-need-line-column-tracking '(json))
+      (setq treesit-languages-require-line-column-tracking '(json))
       (setq parser (treesit-parser-create 'json nil t))
       (should (treesit-tracking-line-column-p))
       (should (treesit-parser-tracking-line-column-p parser)))))

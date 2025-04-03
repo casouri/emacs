@@ -422,13 +422,13 @@ init_treesit_functions (void)
    convinced me to disable tracking by default, and only enable it for
    languages that needs it, for the performance benefit.  So the buffer
    starts out not tracking linecol.  And when a parser is created, if
-   the language is in treesit-languages-need-line-column-tracking, we
+   the language is in treesit-languages-require-line-column-tracking, we
    enable tracking in the buffer, and enable tracking for the parser.
    To simplify things, once a buffer starts tracking linecol, it never
    disables tracking, even if parsers that need tracking are all
    deleted; and for parsers, tracking is determined at creation time, if
    it starts out tracking/non-tracking, it stays that way, regardless of
-   later changes to treesit-languages-need-line-column-tracking.
+   later changes to treesit-languages-require-line-column-tracking.
 
    To make calculating line/column positons fast, we store linecol
    caches for begv, point, and zv in the buffer
@@ -2303,7 +2303,7 @@ an indirect buffer.  */)
 
   const bool lang_need_linecol_tracking
     = !NILP (Fmemq (remapped_lang,
-		    Vtreesit_languages_need_line_column_tracking));
+		    Vtreesit_languages_require_line_column_tracking));
 
   /* Create parser.  Use the unmapped LANGUAGE symbol, so the nodes
      created by this parser (and the parser itself) identify themselves
@@ -5234,8 +5234,8 @@ applies to LANGUAGE-A will be redirected to LANGUAGE-B instead.  */);
   DEFSYM (Qtreesit_language_remap_alist, "treesit-language-remap-alist");
   Fmake_variable_buffer_local (Qtreesit_language_remap_alist);
 
-  DEFVAR_LISP ("treesit-languages-need-line-column-tracking",
-	       Vtreesit_languages_need_line_column_tracking,
+  DEFVAR_LISP ("treesit-languages-require-line-column-tracking",
+	       Vtreesit_languages_require_line_column_tracking,
 	       doc:
 	       /* A list of languages that need line-column tracking.
 
@@ -5243,7 +5243,7 @@ Most tree-sitter language grammars don't require line and column
 tracking to work, but some languages do.  When creating a parser, if the
 language is in this list, Emacs enables line-column tracking for the
 buffer.  */);
-  Vtreesit_languages_need_line_column_tracking = Qnil;
+  Vtreesit_languages_require_line_column_tracking = Qnil;
 
   staticpro (&Vtreesit_str_libtree_sitter);
   Vtreesit_str_libtree_sitter = build_string ("libtree-sitter-");
