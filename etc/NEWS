@@ -1865,6 +1865,23 @@ language A for language B, when language B is a strict superset of
 language A.
 
 +++
+*** New variable 'treesit-languages-require-line-column-tracking'
+Now Emacs can optionally track line and column numbers for buffer edits
+and send that information to tree-sitter parsers.  Parsers of languages
+in this list will receive line and column information.  This is only
+needed for very few languages. So far only Haskell is known to need it.
+
++++
+*** New function 'treesit-tracking-line-column-p'
+New function to check if a buffer is tracking line and column for buffer
+edits.
+
++++
+*** New function 'treesit-parser-tracking-line-column-p'
+New function to check if a parser is receiving line and column
+information.
+
++++
 *** New accessor functions for each setting in 'treesit-font-lock-settings'.
 Now users can access a setting's query, feature, enable flag, and
 override flag by 'treesit-font-lock-setting-query',
