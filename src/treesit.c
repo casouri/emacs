@@ -1145,7 +1145,6 @@ treesit_make_ts_point (struct ts_linecol visible_beg,
   return point;
 }
 
-/* TODO mention in manual.  */
 DEFUN ("treesit-tracking-line-column-p",
        Ftreesit_tracking_line_column_p,
        Streesit_tracking_line_column_p, 0, 1, 0,
