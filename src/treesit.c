@@ -930,25 +930,33 @@ treesit_debug_print_linecol (struct ts_linecol linecol)
   printf ("{ line=%ld col=%ld bytepos=%ld }\n", linecol.line, linecol.col, linecol.bytepos);
 }
 
-static void
-treesit_debug_validate_linecol (struct ts_linecol linecol)
-{
-  eassert (linecol.bytepos <= Z_BYTE);
-
-  ptrdiff_t true_line_count = count_lines (BEG, linecol.bytepos) + 1;
-  eassert (true_line_count == linecol.line);
-}
-
 /* Returns true if BUFFER tracks linecol.  */
 bool treesit_buf_tracks_linecol_p (struct buffer *buffer)
 {
   return BUF_TS_LINECOL_BEGV (buffer).bytepos != 0;
 }
 
+/* Like BUFFER_CEILING_OF but use Z instead of ZV.  */
+static ptrdiff_t
+buffer_ceiling_of (ptrdiff_t bytepos)
+{
+  return (bytepos < GPT_BYTE && GPT < Z ? GPT_BYTE : Z_BYTE) - 1;
+}
+
+/* Like BUFFER_FLOOR_OF but use BEG instead of BEGV.  */
+static ptrdiff_t
+buffer_floor_of (ptrdiff_t bytepos)
+{
+  return BEG <= GPT && GPT_BYTE <= bytepos ? GPT_BYTE : BEG_BYTE;
+}
+
 /* Similar to display_count_lines, but behaves differently when
    searching backwards: when found a newline, stop at the newline,
-   return count as normal (display_count_lines subtracts one).  When
-   searching rorward, stop at the position after the newline.  */
+   return count as normal (display_count_lines stops after the newline
+   and subtracts one from count).  When searching forward, stop at the
+   position after the newline.  Another difference is this function
+   disregards narrowing, so it works on bytepos outside of the visible
+   range.  */
 static ptrdiff_t
 treesit_count_lines (ptrdiff_t start_byte,
 		     ptrdiff_t limit_byte, ptrdiff_t count,
@@ -965,15 +973,16 @@ treesit_count_lines (ptrdiff_t start_byte,
     {
       while (start_byte < limit_byte)
 	{
-	  ceiling =  BUFFER_CEILING_OF (start_byte);
+	  ceiling =  buffer_ceiling_of (start_byte);
 	  ceiling = min (limit_byte - 1, ceiling);
 	  ceiling_addr = BYTE_POS_ADDR (ceiling) + 1;
 	  base = (cursor = BYTE_POS_ADDR (start_byte));
 
-	  do
+	  while (cursor < ceiling_addr)
 	    {
 	      cursor = memchr (cursor, '\n', ceiling_addr - cursor);
-	      if (! cursor)
+
+	      if (!cursor)
 		break;
 
 	      cursor++;
@@ -985,7 +994,6 @@ treesit_count_lines (ptrdiff_t start_byte,
 		  return orig_count;
 		}
 	    }
-	  while (cursor < ceiling_addr);
 
 	  start_byte += ceiling_addr - base;
 	}
@@ -994,7 +1002,7 @@ treesit_count_lines (ptrdiff_t start_byte,
     {
       while (start_byte > limit_byte)
 	{
-	  ceiling = BUFFER_FLOOR_OF (start_byte - 1);
+	  ceiling = buffer_floor_of (start_byte - 1);
 	  ceiling = max (limit_byte, ceiling);
 	  ceiling_addr = BYTE_POS_ADDR (ceiling);
 	  base = (cursor = BYTE_POS_ADDR (start_byte - 1) + 1);
@@ -1021,6 +1029,20 @@ treesit_count_lines (ptrdiff_t start_byte,
     return - orig_count + count;
   return orig_count - count;
 
+}
+
+static void
+treesit_debug_validate_linecol (struct ts_linecol linecol)
+{
+  eassert (linecol.bytepos <= Z_BYTE);
+
+  /* We can't use count_lines as ground truth because it respects
+     narrowing, and calling it with a bytepos outside of the visible
+     portion results in infloop (don't ask why I know).  */
+  ptrdiff_t _unused;
+  ptrdiff_t true_line_count = treesit_count_lines (BEG_BYTE, linecol.bytepos,
+						   Z_BYTE, &_unused) + 1;
+  eassert (true_line_count == linecol.line);
 }
 
 /* Calculate and return the line and column number of BYTE_POS by
@@ -1208,29 +1230,31 @@ treesit_tree_edit_1 (TSTree *tree, ptrdiff_t start_byte,
   ts_tree_edit (tree, &edit);
 }
 
-/* Given a position at BYTEPOS with POS_LINECOL, and the linecol of a
-   buffer change (START_LINECOL, OLD_END_LINECOL, and NEW_END_LINCOL),
-   compute the new linecol for that position and return it.  Only
-   compute line and col fields; pos and byte_pos are left as 0, since
-   the caller should know them anyway.
+/* Given a position at POS_LINECOL, and the linecol of a buffer change
+   (START_LINECOL, OLD_END_LINECOL, and NEW_END_LINCOL), compute the new
+   linecol for that position, then scan from this now valid linecol to
+   TARGET_BYTEPOS and return the linecol at TARGET_BYTEPOS.
 
-   This function is not pure: if in the rare case we can't compute the
-   new linecol from the linecol's alone, scan the buffer from either
-   START_LINECOL or NEW_END_LINECOL.  */
+   The main reason for this dance is to avoid scanning newlines from
+   START_LINECOL, etc, to TARGET_BYTEPOS, with the assumption that
+   POS_LINECOL is close to TARGET_BYTEPOS.  However, this shortcut only
+   works when POS_LINECOL is outside the range between START_LINECOL and
+   OLD_END_LINECOL.  If not, we've have to scan from START_LINECOL or
+   NEW_END_LINECOL to TARGET_BYTEPOS.  */
 static struct ts_linecol
 compute_new_linecol_by_change (struct ts_linecol pos_linecol,
-			       ptrdiff_t new_bytepos,
 			       struct ts_linecol start_linecol,
 			       struct ts_linecol old_end_linecol,
-			       struct ts_linecol new_end_linecol)
+			       struct ts_linecol new_end_linecol,
+			       ptrdiff_t target_bytepos)
 {
-  /* 1. Even start is behind pos, pos isn't affected.  */
-  if (start_linecol.bytepos > pos_linecol.bytepos)
-    return pos_linecol;
-
   struct ts_linecol new_linecol = { 0, 0, 0 };
-  new_linecol.bytepos = new_bytepos;
 
+  /* 1. Even start is behind pos, pos isn't affected.  */
+  if (start_linecol.bytepos >= pos_linecol.bytepos)
+    {
+      new_linecol = pos_linecol;
+    }
   /* 2. When old_end (oe) is before pos, the differnce between pos and
      pos' is the difference between old_end and new_end (ne).
 
@@ -1241,10 +1265,12 @@ compute_new_linecol_by_change (struct ts_linecol pos_linecol,
      s  ne  pos'           s         ne  pos'
 
    */
-  if (old_end_linecol.bytepos < pos_linecol.bytepos)
+  else if (old_end_linecol.bytepos <= pos_linecol.bytepos)
   {
     ptrdiff_t line_delta = new_end_linecol.line - old_end_linecol.line;
     new_linecol.line = pos_linecol.line + line_delta;
+    new_linecol.bytepos
+      = pos_linecol.bytepos + new_end_linecol.bytepos - old_end_linecol.bytepos;
 
     /* Suppose # is text, | is cursor:
 
@@ -1264,7 +1290,7 @@ compute_new_linecol_by_change (struct ts_linecol pos_linecol,
      */
     if (old_end_linecol.line == pos_linecol.line)
       {
-	eassert (old_end_linecol.col < pos_linecol.col);
+	eassert (old_end_linecol.col <= pos_linecol.col);
 	ptrdiff_t old_end_to_pos = pos_linecol.col - old_end_linecol.col;
 	new_linecol.col = new_end_linecol.col + old_end_to_pos;
       }
@@ -1273,22 +1299,23 @@ compute_new_linecol_by_change (struct ts_linecol pos_linecol,
 	new_linecol.col = pos_linecol.col;
       }
   }
-  /* 3. At this point, start < pos <= old_end.  */
-  /* 3.1 A simple deleteion.  */
-  else if (new_end_linecol.bytepos == start_linecol.bytepos)
+  /* 3. At this point, start < pos < old_end.  We're kinda cooked, there
+     aren't much we can do other than scan the buffer from new_end or
+     start.  */
+  else if (target_bytepos - start_linecol.bytepos
+	   < eabs (target_bytepos - new_end_linecol.bytepos))
     {
-      new_linecol = new_end_linecol;
-    }
-  /* 3.2 We're kinda cooked, there aren't much we can do other than scan
-     the buffer from new_end or start.  */
-  else if (new_bytepos - start_linecol.bytepos
-      < eabs (new_bytepos - new_end_linecol.bytepos))
-    {
-      new_linecol = treesit_linecol_of_pos(new_bytepos, start_linecol);
+      new_linecol = treesit_linecol_of_pos (target_bytepos, start_linecol);
     }
   else
     {
-      new_linecol = treesit_linecol_of_pos(new_bytepos, new_end_linecol);
+      new_linecol = treesit_linecol_of_pos (target_bytepos, new_end_linecol);
+    }
+
+  /* Now new_linecol is a valid linecol, scan from it to target_bytepos.  */
+  if (new_linecol.bytepos != target_bytepos)
+    {
+      new_linecol = treesit_linecol_of_pos (target_bytepos, new_linecol);
     }
 
   if (TREESIT_DEBUG_LINECOL)
@@ -1389,9 +1416,9 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 	  XTS_PARSER (lisp_parser)->visible_beg = new_visible_beg;
 	  XTS_PARSER (lisp_parser)->visible_end = new_visible_end;
 
-	  eassert (XTS_PARSER (lisp_parser)->visible_beg >= 0);
-	  eassert (XTS_PARSER (lisp_parser)->visible_beg
-	           <= XTS_PARSER (lisp_parser)->visible_end);
+	  eassert (BEG_BYTE <= new_visible_beg);
+	  eassert (new_visible_beg <= new_visible_end);
+	  eassert (new_visible_end <= Z_BYTE);
 
 	  /* (Optionally) calculate the point for start/old_end/new_end
 	     to be sent to tree-sitter.  Also update parser cache for
@@ -1409,16 +1436,16 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 
 	      const struct ts_linecol new_visi_beg_linecol
 		= compute_new_linecol_by_change (old_visi_beg_linecol,
-						 new_visible_beg,
 						 start_linecol,
 						 old_end_linecol,
-						 new_end_linecol);
+						 new_end_linecol,
+						 new_visible_beg);
 	      const struct ts_linecol new_visi_end_linecol
 		= compute_new_linecol_by_change (old_visi_end_linecol,
-						 new_visible_end,
 						 start_linecol,
 						 old_end_linecol,
-						 new_end_linecol);
+						 new_end_linecol,
+						 new_visible_end);
 	      XTS_PARSER (lisp_parser)->visi_beg_linecol
 		= new_visi_beg_linecol;
 	      XTS_PARSER (lisp_parser)->visi_end_linecol
@@ -1491,16 +1518,16 @@ treesit_record_change (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
     {
       const struct ts_linecol new_begv_linecol
 	= compute_new_linecol_by_change (BUF_TS_LINECOL_BEGV (current_buffer),
-					 BEGV,
 					 start_linecol,
 					 old_end_linecol,
-					 new_end_linecol);
+					 new_end_linecol,
+					 BEGV_BYTE);
       const struct ts_linecol new_zv_linecol
 	= compute_new_linecol_by_change (BUF_TS_LINECOL_ZV (current_buffer),
-					 ZV,
 					 start_linecol,
 					 old_end_linecol,
-					 new_end_linecol);
+					 new_end_linecol,
+					 ZV_BYTE);
 
       SET_BUF_TS_LINECOL_BEGV (current_buffer, new_begv_linecol);
       SET_BUF_TS_LINECOL_POINT (current_buffer, new_end_linecol);
