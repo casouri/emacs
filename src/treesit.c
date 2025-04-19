@@ -936,18 +936,12 @@ bool treesit_buf_tracks_linecol_p (struct buffer *buffer)
   return BUF_TS_LINECOL_BEGV (buffer).bytepos != 0;
 }
 
-/* Like BUFFER_CEILING_OF but use Z instead of ZV.  */
-static ptrdiff_t
-buffer_ceiling_of (ptrdiff_t bytepos)
+static void
+restore_restriction_and_selective_display (Lisp_Object record)
 {
-  return (bytepos < GPT_BYTE && GPT < Z ? GPT_BYTE : Z_BYTE) - 1;
-}
-
-/* Like BUFFER_FLOOR_OF but use BEG instead of BEGV.  */
-static ptrdiff_t
-buffer_floor_of (ptrdiff_t bytepos)
-{
-  return BEG <= GPT && GPT_BYTE <= bytepos ? GPT_BYTE : BEG_BYTE;
+  save_restriction_restore (Fcar (record));
+  BVAR (current_buffer, selective_display) = Fcdr (record);
+  return;
 }
 
 /* Similar to display_count_lines, but behaves differently when
@@ -962,73 +956,34 @@ treesit_count_lines (ptrdiff_t start_byte,
 		     ptrdiff_t limit_byte, ptrdiff_t count,
 		     ptrdiff_t *byte_pos_ptr)
 {
-  register unsigned char *cursor;
-  unsigned char *base;
+  /* I don't think display_count_lines signals, so the unwind-protect
+     technically isn't necessary.  Also treesit_count_lines aren't
+     suppose to signal either since it's used in functions that aren't
+     supposed to signal (treesit_record_change and friends).  */
+  Lisp_Object record = Fcons (save_restriction_save (),
+			      BVAR (current_buffer, selective_display));
 
-  register ptrdiff_t ceiling;
-  register unsigned char *ceiling_addr;
-  ptrdiff_t orig_count = count;
 
-  if (count > 0)
+  specpdl_ref pdl_count = SPECPDL_INDEX ();
+  record_unwind_protect (restore_restriction_and_selective_display, record);
+
+  BVAR (current_buffer, selective_display) = Qnil;
+  labeled_restrictions_remove_in_current_buffer ();
+  Fwiden ();
+  ptrdiff_t counted = display_count_lines (start_byte, limit_byte,
+					   count, byte_pos_ptr);
+
+  unbind_to (pdl_count, Qnil);
+
+  /* If searching backwards and we found COUNT newlines, countermand the
+     different logic in display_count_lines.  */
+  if (count < 0 && limit_byte != *byte_pos_ptr)
     {
-      while (start_byte < limit_byte)
-	{
-	  ceiling =  buffer_ceiling_of (start_byte);
-	  ceiling = min (limit_byte - 1, ceiling);
-	  ceiling_addr = BYTE_POS_ADDR (ceiling) + 1;
-	  base = (cursor = BYTE_POS_ADDR (start_byte));
-
-	  while (cursor < ceiling_addr)
-	    {
-	      cursor = memchr (cursor, '\n', ceiling_addr - cursor);
-
-	      if (!cursor)
-		break;
-
-	      cursor++;
-
-	      if (--count == 0)
-		{
-		  start_byte += cursor - base;
-		  *byte_pos_ptr = start_byte;
-		  return orig_count;
-		}
-	    }
-
-	  start_byte += ceiling_addr - base;
-	}
-    }
-  else
-    {
-      while (start_byte > limit_byte)
-	{
-	  ceiling = buffer_floor_of (start_byte - 1);
-	  ceiling = max (limit_byte, ceiling);
-	  ceiling_addr = BYTE_POS_ADDR (ceiling);
-	  base = (cursor = BYTE_POS_ADDR (start_byte - 1) + 1);
-	  while (true)
-	    {
-	      cursor = memrchr (ceiling_addr, '\n', cursor - ceiling_addr);
-	      if (!cursor)
-		break;
-
-	      if (++count == 0)
-		{
-		  start_byte += cursor - base;
-		  *byte_pos_ptr = start_byte;
-		  return - orig_count;
-		}
-	    }
-	  start_byte += ceiling_addr - base;
-	}
+      counted += 1;
+      *byte_pos_ptr -= 1;
     }
 
-  *byte_pos_ptr = limit_byte;
-
-  if (count < 0)
-    return - orig_count + count;
-  return orig_count - count;
-
+  return counted;
 }
 
 static void
