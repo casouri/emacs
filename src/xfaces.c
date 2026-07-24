@@ -3515,6 +3515,11 @@ FRAME 0 means change the face on all frames, and change the default
 		      && !EQ (v, Qflat_button))
 		    break;
 		}
+	      else if (EQ (k, QCradius))
+		{
+		  if (!FIXNUMP (v) || XFIXNUM (v) < 0)
+		    break;
+		}
 	      else
 		break;
 
@@ -6517,6 +6522,11 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
 		    face->box_color = face->background;
 		}
 	    }
+	  else if (EQ (keyword, QCradius))
+	    {
+	      if (FIXNUMP (value) && XFIXNUM (value) >= 0)
+		face->box_corner_radius = XFIXNUM (value);
+	    }
 	}
     }
 
@@ -7528,6 +7538,7 @@ syms_of_xfaces (void)
   DEFSYM (QCcolor, ":color");
   DEFSYM (QCline_width, ":line-width");
   DEFSYM (QCstyle, ":style");
+  DEFSYM (QCradius, ":radius");
   DEFSYM (QCposition, ":position");
   DEFSYM (Qline, "line");
   DEFSYM (Qwave, "wave");

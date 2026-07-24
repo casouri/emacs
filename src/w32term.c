@@ -1352,9 +1352,56 @@ w32_draw_glyph_string_background (struct glyph_string *s, bool force_p)
 	       || s->extends_to_end_of_line_p
 	       || force_p)
 	{
-	  w32_clear_glyph_string_rect (s, s->x, s->y + box_line_width,
+	  struct glyph *last_glyph = s->first_glyph + s->nchars - 1;
+	  bool closed_box_run_p = (s->first_glyph->left_box_line_p
+				   && last_glyph->right_box_line_p);
+	  if (s->face->box_corner_radius > 0
+	      && s->face->box == FACE_SIMPLE_BOX && closed_box_run_p)
+	    {
+	      /* A rounded simple box: paint the border and background as
+		 two concentric rounded rectangles here, before the text,
+		 so that both the outer and inner edges of the border are
+		 rounded.  The box-drawing step skips this case.  Done only
+		 for a self-contained box run (both ends present).  */
+	      int radius = s->face->box_corner_radius;
+	      int vwidth = eabs (s->face->box_vertical_line_width);
+	      int hwidth = eabs (s->face->box_horizontal_line_width);
+	      /* `radius' is the outer (box) corner radius; the interior is
+		 inset by the border width and rounded with a
+		 correspondingly smaller radius, so the border is
+		 concentric: inner = outer - gap.  */
+	      int gap = max (vwidth, hwidth);
+
+	      /* Outer rectangle in the box color.  */
+	      w32_fill_rounded_rect (s->f, s->hdc, s->face->box_color,
+				     s->x, s->y,
+				     s->background_width, s->height,
+				     radius, true, true);
+	      /* Interior in the background color, inset by the border
+		 width, rounded at the inner radius.  */
+	      w32_fill_rounded_rect (s->f, s->hdc, s->gc->background,
+				     s->x + vwidth, s->y + hwidth,
+				     s->background_width - 2 * vwidth,
+				     s->height - 2 * hwidth,
+				     max (radius - gap, 0), true, true);
+	    }
+	  else if (s->face->box_corner_radius > 0)
+	    {
+	      /* Rounded background only (no closed simple box): round the
+		 corners at the start and end of the box run so adjacent
+		 glyph strings of the run join into one pill shape.  */
+	      w32_fill_rounded_rect (s->f, s->hdc, s->gc->background, s->x,
+				     s->y + box_line_width,
 				     s->background_width,
-				     s->height - 2 * box_line_width);
+				     s->height - 2 * box_line_width,
+				     s->face->box_corner_radius,
+				     s->first_glyph->left_box_line_p,
+				     last_glyph->right_box_line_p);
+	    }
+	  else
+	    w32_clear_glyph_string_rect (s, s->x, s->y + box_line_width,
+				       s->background_width,
+				       s->height - 2 * box_line_width);
 	  s->background_filled_p = true;
 	}
     }
@@ -1846,6 +1893,51 @@ w32_draw_relief_rect (struct frame *f,
    on the right side of the rectangle.  CLIP_RECT is the clipping
    rectangle to use when drawing.  */
 
+/* Fill the rectangle X, Y, WIDTH, HEIGHT with color PIX, rounding the
+   corners by RADIUS pixels.  Only the left corners are rounded when
+   LEFT_P, and only the right corners when RIGHT_P, so that adjacent
+   glyph strings of the same box run join seamlessly.  */
+static void
+w32_fill_rounded_rect (struct frame *f, HDC hdc, COLORREF pix,
+		       int x, int y, int width, int height, int radius,
+		       bool left_p, bool right_p)
+{
+  int r = min (radius, min (width, height) / 2);
+  HBRUSH hb;
+  HRGN rgn;
+
+  if (r <= 0)
+    {
+      RECT rect;
+      rect.left = x;
+      rect.top = y;
+      rect.right = x + width;
+      rect.bottom = y + height;
+      w32_fill_rect (f, hdc, pix, &rect);
+      return;
+    }
+
+  hb = CreateSolidBrush (pix);
+  /* GDI region coordinates treat right/bottom as exclusive.  */
+  rgn = CreateRoundRectRgn (x, y, x + width, y + height, 2 * r, 2 * r);
+  /* Square off the corners on any open side of the box run.  */
+  if (!left_p)
+    {
+      HRGN sq = CreateRectRgn (x, y, x + r, y + height);
+      CombineRgn (rgn, rgn, sq, RGN_OR);
+      DeleteObject (sq);
+    }
+  if (!right_p)
+    {
+      HRGN sq = CreateRectRgn (x + width - r, y, x + width, y + height);
+      CombineRgn (rgn, rgn, sq, RGN_OR);
+      DeleteObject (sq);
+    }
+  FillRgn (hdc, rgn, hb);
+  DeleteObject (rgn);
+  DeleteObject (hb);
+}
+
 static void
 w32_draw_box_rect (struct glyph_string *s,
 		   int left_x, int top_y, int right_x, int bottom_y, int hwidth,
@@ -1935,7 +2027,13 @@ w32_draw_glyph_string_box (struct glyph_string *s)
 
   get_glyph_string_clip_rect (s, &clip_rect);
 
-  if (s->face->box == FACE_SIMPLE_BOX)
+  if (s->face->box == FACE_SIMPLE_BOX
+      && s->face->box_corner_radius > 0 && left_p && right_p)
+    /* A rounded simple box for a self-contained run is drawn as two
+       concentric rounded fills in w32_draw_glyph_string_background,
+       before the text, so nothing to do here.  */
+    ;
+  else if (s->face->box == FACE_SIMPLE_BOX)
     w32_draw_box_rect (s, left_x, top_y, right_x, bottom_y, hwidth,
                        vwidth, left_p, right_p, &clip_rect);
   else

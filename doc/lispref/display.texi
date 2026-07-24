@@ -2883,7 +2883,7 @@ Draw a box with lines of width 1, in the foreground color.
 @item @var{color}
 Draw a box with lines of width 1, in color @var{color}.
 
-@item @code{(:line-width (@var{vwidth} . @var{hwidth}) :color @var{color} :style @var{style})}
+@item @code{(:line-width (@var{vwidth} . @var{hwidth}) :color @var{color} :style @var{style} :radius @var{radius})}
 You can explicitly specify all aspects of the box with a plist of this
 form.  Any element in this plist can be omitted.
 
@@ -2906,6 +2906,13 @@ The value of @var{style} specifies whether to draw a 3D box.  If it is
 being pressed.  If it is @code{pressed-button}, the box looks like a
 3D button that is being pressed.  If it is @code{nil},
 @code{flat-button} or omitted, a plain 2D box is used.
+
+The value of @var{radius} is a non-negative integer that rounds the
+outer corners of the box by that many pixels; it defaults to 0, meaning
+square corners.  The inner edge of the border is rounded concentrically,
+with a radius smaller by the border width, so the interior background is
+rounded too.  Rounding honors box-run boundaries, so adjacent characters
+sharing the face join into a single rounded shape.
 @end table
 
 If you use the @code{:box} face attribute on strings displayed instead

@@ -15362,9 +15362,10 @@ handle_tab_bar_click (struct frame *f, int x, int y, bool down_p,
 
 /* Possibly highlight a tab-bar item on frame F when mouse moves to
    tab-bar window-relative coordinates X/Y.  Called from
-   note_mouse_highlight.  */
+   note_mouse_highlight.  Return true if the mouse is over a tab-bar
+   item, so the caller can show the hand (pointer) mouse cursor.  */
 
-static void
+static bool
 note_tab_bar_highlight (struct frame *f, int x, int y)
 {
   Lisp_Object window = f->tab_bar_window;
@@ -15384,7 +15385,7 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
   if (x <= 0 || y <= 0)
     {
       clear_mouse_face (hlinfo);
-      return;
+      return false;
     }
 
   rc = get_tab_bar_item (f, x, y, &glyph, &hpos, &vpos, &prop_idx, &close_p);
@@ -15392,7 +15393,7 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
     {
       /* Not on tab-bar item.  */
       clear_mouse_face (hlinfo);
-      return;
+      return false;
     }
   else if (rc == 0)
     /* On same tab-bar item as before.  */
@@ -15412,7 +15413,7 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
 
   if (mouse_down_p && f->last_tab_bar_item != prop_idx
       && f->last_tab_bar_item != -1)
-    return;
+    return true;
   draw = mouse_down_p ? DRAW_IMAGE_SUNKEN : DRAW_IMAGE_RAISED;
 
   /* If tab-bar item is not enabled, don't highlight it.  */
@@ -15504,7 +15505,7 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
 	       && (hlinfo->mouse_face_beg_col <= hpos
 		   && hpos < hlinfo->mouse_face_end_col)
 	       && hlinfo->mouse_face_beg_row == vpos )
-	    return;
+	    return true;
 
 	  hlinfo->mouse_face_window = window;
 	  hlinfo->mouse_face_face_id = mouse_face_id;
@@ -15547,6 +15548,8 @@ note_tab_bar_highlight (struct frame *f, int x, int y)
   help_echo_object = help_echo_window = Qnil;
   help_echo_pos = -1;
   help_echo_string = AREF (f->tab_bar_items, prop_idx + TAB_BAR_ITEM_HELP);
+
+  return true;
 }
 
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -37085,9 +37088,11 @@ note_mouse_highlight (struct frame *f, int x, int y)
      buffer.  */
   if (EQ (window, f->tab_bar_window))
     {
-      note_tab_bar_highlight (f, x, y);
-      if (tab_bar__dragging_in_progress)
-	  cursor = FRAME_OUTPUT_DATA (f)->hand_cursor;
+      /* Show the hand (pointer) mouse cursor when hovering over a
+	 clickable tab, like the tab-line and links in buffer text, and
+	 the normal arrow over empty tab-bar space.  */
+      if (note_tab_bar_highlight (f, x, y) || tab_bar__dragging_in_progress)
+	pointer = Qhand;
       else
 	cursor = FRAME_OUTPUT_DATA (f)->nontext_cursor;
       goto set_cursor;

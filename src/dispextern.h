@@ -1844,6 +1844,14 @@ struct face
   int box_vertical_line_width;
   int box_horizontal_line_width;
 
+  /* Radius, in pixels, of the box's rounded corners.  A value of 0
+     (the default) means the box and its background have square
+     corners.  A positive value rounds both the box border and the
+     face's background fill by that many pixels, honoring box-run
+     boundaries so adjacent glyph strings join seamlessly.  Set with
+     the `:radius' keyword of the `:box' face attribute.  */
+  int box_corner_radius;
+
 
   /* The amount of pixels above the descent line the underline should
      be displayed.  It does not take effect unless

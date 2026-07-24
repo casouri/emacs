@@ -208,7 +208,9 @@
 			   (const :tag "Raised" released-button)
 			   (const :tag "Sunken" pressed-button)
 			   (const :tag "Flat"   flat-button)
-			   (const :tag "None" nil))))
+			   (const :tag "None" nil))
+		   (const :format "" :value :radius)
+		   (integer :tag "Corner radius")))
      ;; filter to make value suitable for customize
      ,(lambda (real-value)
 	(and real-value
@@ -224,26 +226,33 @@
 		        (and (stringp real-value) real-value)
 		        nil))
 		   (style
-		    (and (consp real-value) (plist-get real-value :style))))
+		    (and (consp real-value) (plist-get real-value :style)))
+		   (radius
+		    (or (and (consp real-value) (plist-get real-value :radius)) 0)))
                (if (integerp lwidth)
                    (setq lwidth (cons (abs lwidth) lwidth)))
-	       (list :line-width lwidth :color color :style style))))
+	       (list :line-width lwidth :color color :style style
+		     :radius radius))))
      ;; filter to make customized-value suitable for storing
      ,(lambda (cus-value)
 	(and cus-value
 	     (let ((lwidth (plist-get cus-value :line-width))
 		   (color (plist-get cus-value :color))
-		   (style (plist-get cus-value :style)))
-	       (cond ((and (null color) (null style))
+		   (style (plist-get cus-value :style))
+		   (radius (plist-get cus-value :radius)))
+	       (when (and (integerp radius) (zerop radius))
+		 (setq radius nil))
+	       (cond ((and (null color) (null style) (null radius))
 		      lwidth)
-		     ((and (null lwidth) (null style))
+		     ((and (null lwidth) (null style) (null radius))
 		      ;; actually can't happen, because LWIDTH is always an int
 		      color)
 		     (t
 		      ;; Keep as a plist, but remove null entries
 		      (nconc (and lwidth `(:line-width ,lwidth))
 			     (and color  `(:color ,color))
-			     (and style  `(:style ,style)))))))))
+			     (and style  `(:style ,style))
+			     (and radius `(:radius ,radius)))))))))
 
     (:inverse-video
      (choice :tag "Inverse-video"

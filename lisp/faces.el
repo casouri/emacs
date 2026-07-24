@@ -794,7 +794,7 @@ of the face.  If VALUE is a string, the string must be a color name,
 and the box is drawn in that color with a line width of 1.  Otherwise,
 VALUE must be a property list of the following form:
 
- (:line-width WIDTH :color COLOR :style STYLE)
+ (:line-width WIDTH :color COLOR :style STYLE :radius RADIUS)
 
 If a keyword/value pair is missing from the property list, a default
 value will be used for the value, as specified below.
@@ -811,6 +811,12 @@ STYLE specifies whether a 3D box should be drawn.  If STYLE
 is `released-button', draw a box looking like a released 3D button.
 If STYLE is `pressed-button', draw a box that looks like a pressed
 button.  If STYLE is nil, `flat-button', or omitted, draw a 2D box.
+RADIUS is a non-negative integer that rounds the outer corners of the
+box by that many pixels; it defaults to 0 (square corners).  The inner
+edge of the border is rounded concentrically, with a radius smaller by
+the border width, so the interior background is rounded too.  Rounding
+honors box-run boundaries, so adjacent characters sharing the face join
+into a single rounded shape.
 
 `:inverse-video'
 

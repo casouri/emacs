@@ -6729,6 +6729,85 @@ x_clear_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
 #endif
 }
 
+#ifdef USE_CAIRO
+/* Add to CR a closed path outlining the rectangle X, Y, WIDTH, HEIGHT
+   whose left corners are rounded by radius LR and right corners by
+   radius RR (a radius of 0 gives a square corner).  */
+static void
+x_cr_rounded_rectangle (cairo_t *cr, double x, double y,
+			double width, double height, double lr, double rr)
+{
+  double rx = x + width, by = y + height;
+
+  cairo_new_sub_path (cr);
+  cairo_arc (cr, rx - rr, y + rr,  rr, -M_PI / 2, 0);		/* top right */
+  cairo_arc (cr, rx - rr, by - rr, rr, 0, M_PI / 2);		/* bot right */
+  cairo_arc (cr, x + lr,  by - lr, lr, M_PI / 2, M_PI);		/* bot left */
+  cairo_arc (cr, x + lr,  y + lr,  lr, M_PI, M_PI * 3 / 2);	/* top left */
+  cairo_close_path (cr);
+}
+#endif
+
+/* Fill the rectangle X, Y, WIDTH, HEIGHT with the background color of
+   GC, rounding the corners by RADIUS pixels.  Only the left corners
+   are rounded when LEFT_P, and only the right corners when RIGHT_P, so
+   that adjacent glyph strings of the same box run join seamlessly.  */
+static void
+x_fill_rounded_rectangle (struct frame *f, GC gc, int x, int y,
+			  int width, int height, int radius,
+			  bool left_p, bool right_p,
+			  bool respect_alpha_background)
+{
+  int r = min (radius, min (width, height) / 2);
+  int lr = left_p ? r : 0;
+  int rr = right_p ? r : 0;
+
+  if (r <= 0)
+    {
+      x_clear_rectangle (f, gc, x, y, width, height, respect_alpha_background);
+      return;
+    }
+
+#ifdef USE_CAIRO
+  cairo_t *cr = x_begin_cr_clip (f, gc);
+  x_set_cr_source_with_gc_background (f, gc, respect_alpha_background);
+  x_cr_rounded_rectangle (cr, x, y, width, height, lr, rr);
+  cairo_fill (cr);
+  x_end_cr_clip (f);
+#else
+  Display *dpy = FRAME_X_DISPLAY (f);
+  Drawable d = FRAME_X_DRAWABLE (f);
+  XGCValues xgcv;
+
+  XGetGCValues (dpy, gc, GCBackground | GCForeground, &xgcv);
+  XSetForeground (dpy, gc, xgcv.background);
+
+  /* Middle slab spanning the full height, between the rounded columns,
+     plus the straight portion of each rounded edge.  */
+  XFillRectangle (dpy, d, gc, x + lr, y, width - lr - rr, height);
+  if (lr)
+    XFillRectangle (dpy, d, gc, x, y + lr, lr, height - 2 * lr);
+  if (rr)
+    XFillRectangle (dpy, d, gc, x + width - rr, y + rr, rr, height - 2 * rr);
+  /* Corner quarter-disks.  XFillArc angles are in 64ths of a degree,
+     measured counterclockwise from the 3-o'clock direction.  */
+  if (lr)
+    {
+      XFillArc (dpy, d, gc, x, y, 2 * lr, 2 * lr, 90 * 64, 90 * 64);
+      XFillArc (dpy, d, gc, x, y + height - 2 * lr, 2 * lr, 2 * lr,
+		180 * 64, 90 * 64);
+    }
+  if (rr)
+    {
+      XFillArc (dpy, d, gc, x + width - 2 * rr, y, 2 * rr, 2 * rr,
+		0, 90 * 64);
+      XFillArc (dpy, d, gc, x + width - 2 * rr, y + height - 2 * rr,
+		2 * rr, 2 * rr, 270 * 64, 90 * 64);
+    }
+  XSetForeground (dpy, gc, xgcv.foreground);
+#endif
+}
+
 static void
 x_draw_rectangle (struct frame *f, GC gc, int x, int y, int width, int height)
 {
@@ -8597,9 +8676,63 @@ x_draw_glyph_string_background (struct glyph_string *s, bool force_p)
 	       || s->extends_to_end_of_line_p
 	       || force_p)
 	{
-	  x_clear_glyph_string_rect (s, s->x, s->y + box_line_width,
-				     s->background_width,
-				     s->height - 2 * box_line_width);
+	  struct glyph *last_glyph = s->first_glyph + s->nchars - 1;
+	  bool closed_box_run_p = (s->first_glyph->left_box_line_p
+				   && last_glyph->right_box_line_p);
+	  if (s->face->box_corner_radius > 0
+	      && s->face->box == FACE_SIMPLE_BOX && closed_box_run_p)
+	    {
+	      /* A rounded simple box: paint the border and background as
+		 two concentric rounded rectangles here, before the text,
+		 so that both the outer and inner edges of the border are
+		 rounded.  The box-drawing step skips this case.  Done only
+		 for a self-contained box run (both ends present).  */
+	      int radius = s->face->box_corner_radius;
+	      int vwidth = eabs (s->face->box_vertical_line_width);
+	      int hwidth = eabs (s->face->box_horizontal_line_width);
+	      bool alpha_p = s->hl != DRAW_CURSOR;
+	      Display *dpy = FRAME_X_DISPLAY (s->f);
+	      XGCValues xgcv;
+
+	      XGetGCValues (dpy, s->gc, GCBackground, &xgcv);
+	      /* `radius' is the outer (box) corner radius; the interior is
+		 inset by the border width and rounded with a
+		 correspondingly smaller radius, so the border is
+		 concentric: inner = outer - gap.  */
+	      int gap = max (vwidth, hwidth);
+	      /* Outer rectangle in the box color.  */
+	      XSetBackground (dpy, s->gc, s->face->box_color);
+	      x_fill_rounded_rectangle (s->f, s->gc, s->x, s->y,
+					s->background_width, s->height,
+					radius, true, true, alpha_p);
+	      /* Interior in the background color, inset by the border
+		 width, rounded at the inner radius.  */
+	      XSetBackground (dpy, s->gc, xgcv.background);
+	      x_fill_rounded_rectangle (s->f, s->gc,
+					s->x + vwidth, s->y + hwidth,
+					s->background_width - 2 * vwidth,
+					s->height - 2 * hwidth,
+					max (radius - gap, 0), true, true,
+					alpha_p);
+	    }
+	  else if (s->face->box_corner_radius > 0)
+	    {
+	      /* Rounded background only (no closed simple box): round the
+		 corners at the start and end of the box run so adjacent
+		 glyph strings of the run join into one pill shape.  */
+	      x_fill_rounded_rectangle (s->f, s->gc, s->x,
+					s->y + box_line_width,
+					s->background_width,
+					s->height - 2 * box_line_width,
+					s->face->box_corner_radius,
+					s->first_glyph->left_box_line_p,
+					last_glyph->right_box_line_p,
+					s->hl != DRAW_CURSOR);
+	    }
+	  else
+	    x_clear_glyph_string_rect (s, s->x, s->y + box_line_width,
+				       s->background_width,
+				       s->height - 2 * box_line_width);
 	  s->background_filled_p = true;
 	}
     }
@@ -10090,7 +10223,13 @@ x_draw_glyph_string_box (struct glyph_string *s)
 
   get_glyph_string_clip_rect (s, &clip_rect);
 
-  if (s->face->box == FACE_SIMPLE_BOX)
+  if (s->face->box == FACE_SIMPLE_BOX
+      && s->face->box_corner_radius > 0 && left_p && right_p)
+    /* A rounded simple box for a self-contained run is drawn as two
+       concentric rounded fills in x_draw_glyph_string_background,
+       before the text, so nothing to do here.  */
+    ;
+  else if (s->face->box == FACE_SIMPLE_BOX)
     x_draw_box_rect (s, left_x, top_y, right_x, bottom_y, hwidth,
 		     vwidth, left_p, right_p, &clip_rect);
   else

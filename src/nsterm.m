@@ -3798,6 +3798,56 @@ ns_draw_text_decoration (struct glyph_string *s, struct face *face,
     }
 }
 
+static NSBezierPath *
+ns_rounded_rect_path (NSRect r, CGFloat radius, char left_p, char right_p)
+/* --------------------------------------------------------------------------
+    Return a closed path tracing rectangle R with its corners rounded by
+    RADIUS pixels.  Only the left corners are rounded when LEFT_P, and only
+    the right corners when RIGHT_P; the other corners stay square so that
+    adjacent glyph strings belonging to the same box run join seamlessly
+    into a single rounded shape.  Cubic curves are used instead of arcs so
+    the result is independent of the view's flipped coordinate system.
+   -------------------------------------------------------------------------- */
+{
+  /* Magic constant for a cubic-Bezier approximation of a quarter circle.  */
+  CGFloat kappa = 0.55228475f;
+  CGFloat minx = NSMinX (r), miny = NSMinY (r);
+  CGFloat maxx = NSMaxX (r), maxy = NSMaxY (r);
+  /* Never let the radius exceed half of the smaller side.  */
+  CGFloat rad = min (radius, min (r.size.width, r.size.height) / 2);
+  CGFloat lr = left_p ? rad : 0;
+  CGFloat rr = right_p ? rad : 0;
+  NSBezierPath *p = [NSBezierPath bezierPath];
+
+  /* Top edge, left to right.  */
+  [p moveToPoint: NSMakePoint (minx + lr, miny)];
+  [p lineToPoint: NSMakePoint (maxx - rr, miny)];
+  if (rr > 0)
+    [p curveToPoint: NSMakePoint (maxx, miny + rr)
+       controlPoint1: NSMakePoint (maxx - rr * (1 - kappa), miny)
+       controlPoint2: NSMakePoint (maxx, miny + rr * (1 - kappa))];
+  /* Right edge.  */
+  [p lineToPoint: NSMakePoint (maxx, maxy - rr)];
+  if (rr > 0)
+    [p curveToPoint: NSMakePoint (maxx - rr, maxy)
+       controlPoint1: NSMakePoint (maxx, maxy - rr * (1 - kappa))
+       controlPoint2: NSMakePoint (maxx - rr * (1 - kappa), maxy)];
+  /* Bottom edge, right to left.  */
+  [p lineToPoint: NSMakePoint (minx + lr, maxy)];
+  if (lr > 0)
+    [p curveToPoint: NSMakePoint (minx, maxy - lr)
+       controlPoint1: NSMakePoint (minx + lr * (1 - kappa), maxy)
+       controlPoint2: NSMakePoint (minx, maxy - lr * (1 - kappa))];
+  /* Left edge.  */
+  [p lineToPoint: NSMakePoint (minx, miny + lr)];
+  if (lr > 0)
+    [p curveToPoint: NSMakePoint (minx + lr, miny)
+       controlPoint1: NSMakePoint (minx, miny + lr * (1 - kappa))
+       controlPoint2: NSMakePoint (minx + lr * (1 - kappa), miny)];
+  [p closePath];
+  return p;
+}
+
 static void
 ns_draw_box (NSRect r, CGFloat hthickness, CGFloat vthickness,
              NSColor *col, char left_p, char right_p)
@@ -4066,7 +4116,13 @@ ns_dumpglyphs_box_or_relief (struct glyph_string *s)
   r = NSMakeRect (s->x, s->y, right_x - s->x + 1, s->height);
 
   /* TODO: Sometimes box_color is 0 and this seems wrong; should investigate.  */
-  if (s->face->box == FACE_SIMPLE_BOX && s->face->box_color)
+  if (s->face->box == FACE_SIMPLE_BOX && s->face->box_corner_radius > 0
+      && left_p && right_p)
+    /* A rounded simple box for a self-contained run is drawn as two
+       concentric rounded fills in ns_maybe_dumpglyphs_background, before
+       the text, so nothing to do here.  */
+    ;
+  else if (s->face->box == FACE_SIMPLE_BOX && s->face->box_color)
     {
       ns_draw_box (r, abs (hthickness), abs (vthickness),
                    [NSColor colorWithUnsignedLong:face->box_color],
@@ -4162,7 +4218,53 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
 	  r = NSMakeRect (s->x, s->y + box_line_width,
 			  s->background_width,
 			  s->height - 2 * box_line_width);
-	  NSRectFill (r);
+	  struct glyph *last = s->first_glyph + s->nchars - 1;
+	  bool closed_box_run_p = (s->first_glyph->left_box_line_p
+				   && last->right_box_line_p);
+	  if (face->box_corner_radius > 0
+	      && face->box == FACE_SIMPLE_BOX && closed_box_run_p)
+	    {
+	      /* A rounded simple box: paint the border and background as
+		 two concentric rounded rectangles here, before the text,
+		 so that both the outer and inner edges of the border are
+		 rounded.  The box-drawing step skips this case.  Done only
+		 for a self-contained box run (both ends present).  The
+		 background color is the one just `set' above.  */
+	      int radius = face->box_corner_radius;
+	      int vwidth = eabs (face->box_vertical_line_width);
+	      int hwidth = eabs (face->box_horizontal_line_width);
+	      /* `radius' is the outer (box) corner radius; the interior is
+		 inset by the border width and rounded with a
+		 correspondingly smaller radius, so the border is
+		 concentric: inner = outer - gap.  */
+	      int gap = max (vwidth, hwidth);
+	      NSColor *bg = (NS_FACE_BACKGROUND (face) != 0
+			     ? [NSColor colorWithUnsignedLong:
+					  NS_FACE_BACKGROUND (face)]
+			     : FRAME_BACKGROUND_COLOR (s->f));
+	      NSRect outer = NSMakeRect (s->x, s->y,
+					 s->background_width, s->height);
+	      NSRect inner = NSMakeRect (s->x + vwidth, s->y + hwidth,
+					 s->background_width - 2 * vwidth,
+					 s->height - 2 * hwidth);
+	      /* Outer rectangle in the box color, rounded at outer radius.  */
+	      [[NSColor colorWithUnsignedLong: face->box_color] set];
+	      [ns_rounded_rect_path (outer, radius, 1, 1) fill];
+	      /* Interior in the background color, rounded at inner radius.  */
+	      [bg set];
+	      [ns_rounded_rect_path (inner, max (radius - gap, 0), 1, 1) fill];
+	    }
+	  else if (face->box_corner_radius > 0)
+	    {
+	      /* Rounded background only (no closed simple box): round the
+		 corners at the start and end of the box run so adjacent
+		 glyph strings of the run join into one pill shape.  */
+	      [ns_rounded_rect_path (r, face->box_corner_radius,
+				     s->first_glyph->left_box_line_p,
+				     last->right_box_line_p) fill];
+	    }
+	  else
+	    NSRectFill (r);
 	  s->background_filled_p = 1;
 	}
     }

@@ -30,6 +30,25 @@ applies, and please also update docstrings as needed.
 
 * Changes in Emacs 32.1
 
++++
+** The ':box' face attribute supports rounded corners via ':radius'.
+The ':box' property list now accepts a ':radius' keyword whose value is
+a non-negative integer: the outer corner radius, in pixels, of the box.
+The inner edge of the border is rounded concentrically (with a radius
+smaller by the border width), so both edges of the border and the
+face's background are rounded.  Rounding honors box-run boundaries, so
+adjacent characters join into a single rounded shape.  For example:
+
+    (set-face-attribute 'my-face nil
+                        :box '(:line-width 2 :color "gray50" :radius 6))
+
+This is supported on the X (Cairo and plain Xlib), w32, and NS builds.
+
+** The mouse pointer now shows a pointing hand over tab-bar tabs.
+When the mouse hovers over a clickable item in the tab bar, the pointer
+changes to a pointing hand (like links in buffer text and the
+tab-line), instead of staying the default arrow.
+
 ---
 ** Emacs no longer kills child processes after EPIPE.
 Previously, Emacs would immediately kill a child process and set its
